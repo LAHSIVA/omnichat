@@ -1,0 +1,10 @@
+[project]
+name = "omnichat-backend"
+version = "0.1.0"
+description = "Backend API for OmniChat - AI Chat and Knowledge Assistant"
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "django>=5.2.17",
+    "djangorestframework>=3.18.0",
+]
