@@ -3,7 +3,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .serializers import RegistrationSerializer
+from .serializers import CurrentUserSerializer, RegistrationSerializer
 
 
 class RegistrationView(generics.CreateAPIView):
@@ -13,15 +13,11 @@ class RegistrationView(generics.CreateAPIView):
     permission_classes = [AllowAny]
 
 
-class CurrentUserView(APIView):
+class CurrentUserView(generics.RetrieveAPIView):
     """Return the currently authenticated user."""
 
-    def get(self, request):
-        """Return basic information about the authenticated user."""
-        return Response(
-            {
-                "id": request.user.id,
-                "username": request.user.username,
-                "email": request.user.email,
-            }
-        )
+    serializer_class = CurrentUserSerializer
+
+    def get_object(self):
+        """Return the currently authenticated user."""
+        return self.request.user

@@ -54,6 +54,7 @@ INSTALLED_APPS = [
     "core",
     "accounts",
     "rest_framework_simplejwt.token_blacklist",
+    "drf_spectacular",
 ]
 
 MIDDLEWARE = [
@@ -145,10 +146,18 @@ STATIC_URL = "static/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 REST_FRAMEWORK = {
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
     "DEFAULT_PERMISSION_CLASSES": (
         "rest_framework.permissions.IsAuthenticated",
     ),
+}
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "OmniChat API",
+    "DESCRIPTION": "AI Chat and Knowledge Assistant API",
+    "VERSION": "1.0.0",
+    "SERVE_INCLUDE_SCHEMA": False,
 }
