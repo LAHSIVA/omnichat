@@ -32,3 +32,9 @@ class MessageSerializer(serializers.ModelSerializer):
             "role",
             "created_at",
         ]
+
+class MessageCreateSerializer(serializers.Serializer):
+    content = serializers.CharField(
+        min_length=1,
+        trim_whitespace=True,
+    )

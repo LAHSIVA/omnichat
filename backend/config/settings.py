@@ -56,6 +56,7 @@ INSTALLED_APPS = [
     "rest_framework_simplejwt.token_blacklist",
     "drf_spectacular",
     "conversations",
+    "ai",
 ]
 
 MIDDLEWARE = [
@@ -162,3 +163,23 @@ SPECTACULAR_SETTINGS = {
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
 }
+
+AI_PROVIDER = env(
+    "AI_PROVIDER",
+    default="fake",
+)
+
+AI_MODEL = env(
+    "AI_MODEL",
+    default="fake-model",
+)
+
+FREELLMAPI_BASE_URL = env(
+    "FREELLMAPI_BASE_URL",
+    default="http://localhost:3001/v1",
+)
+
+FREELLMAPI_API_KEY = env(
+    "FREELLMAPI_API_KEY",
+    default="",
+)

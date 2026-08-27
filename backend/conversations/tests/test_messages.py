@@ -2,10 +2,23 @@ import pytest
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
+from ai.domain.types import LLMResponse
+from ai.orchestrator import ChatOrchestrator
 from conversations.models import Conversation, Message
 
 
 User = get_user_model()
+
+
+class FakeGateway:
+    def generate(self, messages):
+        return LLMResponse(
+            content="Fake AI response",
+            model="fake-model",
+            provider="fake",
+            usage=None,
+            finish_reason="stop",
+        )
 
 
 @pytest.fixture
@@ -29,6 +42,8 @@ def authenticated_client(user):
         format="json",
     )
 
+    assert response.status_code == 200
+
     client.credentials(
         HTTP_AUTHORIZATION=f"Bearer {response.json()['access']}"
     )
@@ -44,10 +59,21 @@ def conversation(user):
     )
 
 
+@pytest.fixture
+def fake_orchestrator(monkeypatch):
+    monkeypatch.setattr(
+        "conversations.views.ChatOrchestrator",
+        lambda: ChatOrchestrator(
+            gateway=FakeGateway(),
+        ),
+    )
+
+
 @pytest.mark.django_db
 def test_authenticated_user_can_create_message(
     authenticated_client,
     conversation,
+    fake_orchestrator,
 ):
     response = authenticated_client.post(
         f"/api/conversations/{conversation.id}/messages/",
@@ -61,21 +87,32 @@ def test_authenticated_user_can_create_message(
 
     data = response.json()
 
-    assert data["role"] == "user"
-    assert data["content"] == "What is RAG?"
+    assert data["role"] == Message.Role.ASSISTANT
+    assert data["content"] == "Fake AI response"
     assert "id" in data
     assert "created_at" in data
 
-    message = Message.objects.get(id=data["id"])
+    user_message = Message.objects.get(
+        conversation=conversation,
+        role=Message.Role.USER,
+    )
 
-    assert message.conversation == conversation
-    assert message.role == Message.Role.USER
+    assert user_message.content == "What is RAG?"
+
+    assistant_message = Message.objects.get(
+        id=data["id"],
+    )
+
+    assert assistant_message.conversation == conversation
+    assert assistant_message.role == Message.Role.ASSISTANT
+    assert assistant_message.content == "Fake AI response"
 
 
 @pytest.mark.django_db
 def test_message_role_cannot_be_spoofed(
     authenticated_client,
     conversation,
+    fake_orchestrator,
 ):
     response = authenticated_client.post(
         f"/api/conversations/{conversation.id}/messages/",
@@ -90,11 +127,16 @@ def test_message_role_cannot_be_spoofed(
 
     data = response.json()
 
-    assert data["role"] == Message.Role.USER
+    # The client-supplied role must be ignored.
+    assert data["role"] == Message.Role.ASSISTANT
+    assert data["content"] == "Fake AI response"
 
-    message = Message.objects.get(id=data["id"])
+    user_message = Message.objects.get(
+        conversation=conversation,
+        role=Message.Role.USER,
+    )
 
-    assert message.role == Message.Role.USER
+    assert user_message.content == "Fake assistant message"
 
 
 @pytest.mark.django_db
@@ -157,6 +199,7 @@ def test_user_cannot_access_another_users_messages(
 @pytest.mark.django_db
 def test_user_cannot_create_message_in_another_users_conversation(
     authenticated_client,
+    fake_orchestrator,
 ):
     other_user = User.objects.create_user(
         username="other_create_user",
@@ -229,7 +272,7 @@ def test_message_requires_content(
 
 
 @pytest.mark.django_db
-def test_message_empty_content_behavior(
+def test_message_empty_content_is_rejected(
     authenticated_client,
     conversation,
 ):

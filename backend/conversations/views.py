@@ -9,7 +9,12 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import Conversation, Message
-from .serializers import MessageSerializer
+from .serializers import (
+    MessageCreateSerializer,
+    MessageSerializer,
+)
+
+from ai.orchestrator import ChatOrchestrator
 from drf_spectacular.utils import extend_schema
 
 
@@ -64,18 +69,20 @@ class ConversationMessageListCreateView(APIView):
             conversation_id,
         )
 
-        serializer = MessageSerializer(
+        serializer = MessageCreateSerializer(
             data=request.data,
         )
 
         serializer.is_valid(raise_exception=True)
 
-        message = serializer.save(
+        orchestrator = ChatOrchestrator()
+
+        result = orchestrator.chat(
             conversation=conversation,
-            role=Message.Role.USER,
+            content=serializer.validated_data["content"],
         )
 
         return Response(
-            MessageSerializer(message).data,
+            MessageSerializer(result.assistant_message).data,
             status=status.HTTP_201_CREATED,
         )
