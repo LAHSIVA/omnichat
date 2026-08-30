@@ -184,3 +184,36 @@ FREELLMAPI_API_KEY = env(
     "FREELLMAPI_API_KEY",
     default="",
 )
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "verbose": {
+            "()": "core.logging.SafeExtraFormatter",
+            "format": (
+                "{asctime} {levelname} "
+                "{name} {message} "
+                "provider={provider} "
+                "model={model} "
+                "duration_ms={duration_ms} "
+                "input_tokens={input_tokens} "
+                "output_tokens={output_tokens}"
+            ),
+            "style": "{",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "verbose",
+        },
+    },
+    "loggers": {
+        "ai": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+    },
+}

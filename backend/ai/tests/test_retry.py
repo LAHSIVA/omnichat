@@ -190,3 +190,39 @@ def test_retry_policy_rejects_negative_backoff():
             max_attempts=2,
             backoff_seconds=-1,
         )
+
+def test_retry_policy_logs_retry(caplog):
+    calls = 0
+
+    def operation():
+        nonlocal calls
+        calls += 1
+
+        if calls == 1:
+            raise LLMRateLimitError("Rate limit exceeded")
+
+        return "success"
+
+    policy = RetryPolicy(
+        max_attempts=2,
+        backoff_seconds=0,
+    )
+
+    with caplog.at_level(
+        "WARNING",
+        logger="ai.resilience.retry",
+    ):
+        result = policy.execute(operation)
+
+    assert result == "success"
+
+    record = next(
+        record
+        for record in caplog.records
+        if record.message == "LLM request retrying"
+    )
+
+    assert record.attempt == 1
+    assert record.next_attempt == 2
+
+    assert "Rate limit exceeded" not in caplog.text
