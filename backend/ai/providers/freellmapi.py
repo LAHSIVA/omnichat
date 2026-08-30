@@ -1,5 +1,18 @@
-from openai import OpenAI
+from openai import (
+    APIConnectionError,
+    APIError,
+    APITimeoutError,
+    AuthenticationError,
+    OpenAI,
+    RateLimitError,
+)
 
+from ai.domain.exceptions import (
+    LLMAuthenticationError,
+    LLMProviderError,
+    LLMRateLimitError,
+    LLMTimeoutError,
+)
 from ai.domain.types import ChatMessage, LLMResponse, TokenUsage
 from ai.providers.base import LLMProvider
 
@@ -43,9 +56,30 @@ class FreeLLMAPIProvider(LLMProvider):
         if max_tokens is not None:
             request_kwargs["max_tokens"] = max_tokens
 
-        response = self.client.chat.completions.create(
-            **request_kwargs,
-        )
+        try:
+            response = self.client.chat.completions.create(
+                **request_kwargs,
+            )
+        except AuthenticationError as exc:
+            raise LLMAuthenticationError(
+                "LLM provider authentication failed"
+            ) from exc
+        except RateLimitError as exc:
+            raise LLMRateLimitError(
+                "LLM provider rate limit exceeded"
+            ) from exc
+        except APITimeoutError as exc:
+            raise LLMTimeoutError(
+                "LLM provider request timed out"
+            ) from exc
+        except APIConnectionError as exc:
+            raise LLMProviderError(
+                "LLM provider connection failed"
+            ) from exc
+        except APIError as exc:
+            raise LLMProviderError(
+                "LLM provider request failed"
+            ) from exc
 
         usage = None
 

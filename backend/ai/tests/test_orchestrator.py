@@ -3,7 +3,7 @@ import pytest
 from ai.domain.types import LLMResponse
 from ai.orchestrator import ChatOrchestrator
 from conversations.models import Conversation, Message
-
+from ai.domain.exceptions import LLMProviderError
 
 class FakeGateway:
     def __init__(self, response=None):
@@ -23,7 +23,7 @@ class FakeGateway:
 
 class FailingGateway:
     def generate(self, messages):
-        raise RuntimeError("LLM provider failed")
+        raise LLMProviderError("LLM provider failed")
 
 
 @pytest.mark.django_db
@@ -188,7 +188,7 @@ def test_user_message_is_preserved_when_llm_fails(
     gateway = FailingGateway()
     orchestrator = ChatOrchestrator(gateway=gateway)
 
-    with pytest.raises(RuntimeError, match="LLM provider failed"):
+    with pytest.raises(LLMProviderError, match="LLM provider failed"):
         orchestrator.chat(
             conversation=conversation,
             content="This should survive an LLM failure",

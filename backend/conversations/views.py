@@ -60,7 +60,7 @@ class ConversationMessageListCreateView(APIView):
         return Response(serializer.data)
 
     @extend_schema(
-        request=MessageSerializer,
+        request=MessageCreateSerializer,
         responses={201: MessageSerializer},
     )
     def post(self, request, conversation_id):

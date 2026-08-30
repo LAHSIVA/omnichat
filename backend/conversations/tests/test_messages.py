@@ -5,7 +5,7 @@ from rest_framework.test import APIClient
 from ai.domain.types import LLMResponse
 from ai.orchestrator import ChatOrchestrator
 from conversations.models import Conversation, Message
-
+from ai.domain.exceptions import LLMProviderError
 
 User = get_user_model()
 
@@ -285,3 +285,148 @@ def test_message_empty_content_is_rejected(
     )
 
     assert response.status_code == 400
+
+@pytest.mark.django_db
+def test_llm_provider_error_returns_safe_api_response(
+    authenticated_client,
+    conversation,
+    monkeypatch,
+):
+    class FailingOrchestrator:
+        def chat(self, *, conversation, content):
+            raise LLMProviderError(
+                "FreeLLMAPI connection failed internally"
+            )
+
+    monkeypatch.setattr(
+        "conversations.views.ChatOrchestrator",
+        FailingOrchestrator,
+    )
+
+    response = authenticated_client.post(
+        f"/api/conversations/{conversation.id}/messages/",
+        {
+            "content": "Hello AI",
+        },
+        format="json",
+    )
+
+    assert response.status_code == 503
+
+    data = response.json()
+
+    assert data == {
+        "detail": "The AI service is temporarily unavailable."
+    }
+
+    assert "FreeLLMAPI" not in str(data)
+
+@pytest.mark.django_db
+def test_llm_timeout_returns_gateway_timeout(
+    authenticated_client,
+    conversation,
+    monkeypatch,
+):
+    from ai.domain.exceptions import LLMTimeoutError
+
+    class FailingOrchestrator:
+        def chat(self, *, conversation, content):
+            raise LLMTimeoutError(
+                "Provider timed out after 30 seconds"
+            )
+
+    monkeypatch.setattr(
+        "conversations.views.ChatOrchestrator",
+        FailingOrchestrator,
+    )
+
+    response = authenticated_client.post(
+        f"/api/conversations/{conversation.id}/messages/",
+        {
+            "content": "Hello AI",
+        },
+        format="json",
+    )
+
+    assert response.status_code == 504
+
+    assert response.json() == {
+        "detail": "The AI service timed out."
+    }
+
+@pytest.mark.django_db
+def test_llm_rate_limit_returns_429(
+    authenticated_client,
+    conversation,
+    monkeypatch,
+):
+    from ai.domain.exceptions import LLMRateLimitError
+
+    class FailingOrchestrator:
+        def chat(self, *, conversation, content):
+            raise LLMRateLimitError(
+                "Provider rate limit exceeded"
+            )
+
+    monkeypatch.setattr(
+        "conversations.views.ChatOrchestrator",
+        FailingOrchestrator,
+    )
+
+    response = authenticated_client.post(
+        f"/api/conversations/{conversation.id}/messages/",
+        {
+            "content": "Hello AI",
+        },
+        format="json",
+    )
+
+    assert response.status_code == 429
+
+    assert response.json() == {
+        "detail": "The AI service is temporarily rate limited."
+    }
+
+@pytest.mark.django_db
+def test_llm_failure_preserves_user_message_and_creates_no_assistant(
+    authenticated_client,
+    conversation,
+    monkeypatch,
+):
+    class FailingOrchestrator:
+        def chat(self, *, conversation, content):
+            Message.objects.create(
+                conversation=conversation,
+                role=Message.Role.USER,
+                content=content,
+            )
+
+            raise LLMProviderError(
+                "FreeLLMAPI connection failed internally"
+            )
+
+    monkeypatch.setattr(
+        "conversations.views.ChatOrchestrator",
+        FailingOrchestrator,
+    )
+
+    response = authenticated_client.post(
+        f"/api/conversations/{conversation.id}/messages/",
+        {
+            "content": "This message must survive the failure",
+        },
+        format="json",
+    )
+
+    assert response.status_code == 503
+
+    assert Message.objects.filter(
+        conversation=conversation,
+        role=Message.Role.USER,
+        content="This message must survive the failure",
+    ).exists()
+
+    assert not Message.objects.filter(
+        conversation=conversation,
+        role=Message.Role.ASSISTANT,
+    ).exists()

@@ -1,11 +1,25 @@
 from types import SimpleNamespace
 
+import httpx
+import pytest
+
+from openai import (
+    APIConnectionError,
+    APITimeoutError,
+    AuthenticationError,
+    RateLimitError,
+)
+
+from ai.domain.exceptions import (
+    LLMAuthenticationError,
+    LLMProviderError,
+    LLMRateLimitError,
+    LLMTimeoutError,
+)
+
 from ai.domain.types import ChatMessage
 from ai.providers.fake import FakeLLMProvider
 from ai.providers.freellmapi import FreeLLMAPIProvider
-
-
-# ... keep your existing tests ...
 
 
 def test_freellmapi_provider_omits_max_tokens_when_not_provided(
@@ -104,3 +118,129 @@ def test_freellmapi_provider_sends_max_tokens_when_provided():
     )
 
     assert captured_kwargs["max_tokens"] == 100
+
+class FailingCompletions:
+    def __init__(self, error):
+        self.error = error
+
+    def create(self, **kwargs):
+        raise self.error
+
+
+class FailingClient:
+    def __init__(self, error):
+        self.chat = SimpleNamespace(
+            completions=FailingCompletions(error),
+        )
+
+def test_freellmapi_authentication_error_is_translated():
+    request = httpx.Request(
+    "POST",
+    "http://test-server/v1/chat/completions",
+    )
+
+    response = httpx.Response(
+        401,
+        request=request,
+    )
+
+    error = AuthenticationError(
+        "Invalid API key",
+        response=response,
+        body={"error": "invalid_api_key"},
+    )
+
+    provider = FreeLLMAPIProvider(
+        api_key="test-api-key",
+        base_url="http://test-server/v1",
+    )
+
+    provider.client = FailingClient(error)
+
+    with pytest.raises(LLMAuthenticationError):
+        provider.generate(
+            [
+                ChatMessage(
+                    role="user",
+                    content="Hello",
+                )
+            ],
+            model="gemini-3-flash-preview",
+        )
+
+def test_freellmapi_rate_limit_error_is_translated():
+    request = httpx.Request(
+        "POST",
+        "http://test-server/v1/chat/completions",
+    )
+
+    response = httpx.Response(
+        429,
+        request=request,
+    )
+
+    error = RateLimitError(
+        "Rate limit exceeded",
+        response=response,
+        body={"error": "rate_limit"},
+    )
+
+    provider = FreeLLMAPIProvider(
+        api_key="test-api-key",
+        base_url="http://test-server/v1",
+    )
+
+    provider.client = FailingClient(error)
+
+    with pytest.raises(LLMRateLimitError):
+        provider.generate(
+            [
+                ChatMessage(
+                    role="user",
+                    content="Hello",
+                )
+            ],
+            model="gemini-3-flash-preview",
+        )
+
+def test_freellmapi_timeout_error_is_translated():
+    error = APITimeoutError(request=None)
+
+    provider = FreeLLMAPIProvider(
+        api_key="test-api-key",
+        base_url="http://test-server/v1",
+    )
+
+    provider.client = FailingClient(error)
+
+    with pytest.raises(LLMTimeoutError):
+        provider.generate(
+            [
+                ChatMessage(
+                    role="user",
+                    content="Hello",
+                )
+            ],
+            model="gemini-3-flash-preview",
+        )
+
+def test_freellmapi_connection_error_is_translated():
+    error = APIConnectionError(request=None)
+
+    provider = FreeLLMAPIProvider(
+        api_key="test-api-key",
+        base_url="http://test-server/v1",
+    )
+
+    provider.client = FailingClient(error)
+
+    with pytest.raises(LLMProviderError):
+        provider.generate(
+            [
+                ChatMessage(
+                    role="user",
+                    content="Hello",
+                )
+            ],
+            model="gemini-3-flash-preview",
+        )
