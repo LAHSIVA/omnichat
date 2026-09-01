@@ -36,15 +36,22 @@ class ContextBuilder:
             if message.role != "system"
         ]
 
-        system_tokens = sum(
-            self.token_counter.count(message)
-            for message in system_messages
-        )
+        selected_system_messages = []
+        system_tokens = 0
 
-        if system_tokens > self.max_tokens:
-            raise ContextLimitError(
-                "system message exceeds the context limit"
-            )
+        for message in system_messages:
+            message_tokens = self.token_counter.count(message)
+
+            if system_tokens + message_tokens > self.max_tokens:
+                if message.is_optional:
+                    continue
+
+                raise ContextLimitError(
+                    "system message exceeds the context limit"
+                )
+
+            selected_system_messages.append(message)
+            system_tokens += message_tokens
 
         latest_message = non_system_messages[-1]
 
@@ -57,7 +64,7 @@ class ContextBuilder:
                 "latest message exceeds the context limit"
             )
 
-        selected = list(system_messages)
+        selected = list(selected_system_messages)
         selected.append(latest_message)
 
         total_tokens = system_tokens + latest_tokens
@@ -71,7 +78,7 @@ class ContextBuilder:
             selected.append(message)
             total_tokens += message_tokens
 
-        system_count = len(system_messages)
+        system_count = len(selected_system_messages)
 
         conversation_messages = selected[system_count:]
         conversation_messages.reverse()

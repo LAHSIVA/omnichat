@@ -6,6 +6,9 @@ from conversations.models import Conversation, Message
 from ai.domain.exceptions import LLMProviderError
 from django.conf import settings
 from ai.domain.exceptions import ContextLimitError
+from ai.context.builder import ContextBuilder
+from ai.context.token_counter import CharacterTokenCounter
+
 class FakeGateway:
     def __init__(self, response=None):
         self.response = response or LLMResponse(
@@ -426,7 +429,7 @@ def test_orchestrator_handles_no_retrieved_knowledge(
     )
 
 @pytest.mark.django_db
-def test_orchestrator_rejects_knowledge_that_exceeds_context_limit(
+def test_orchestrator_skips_knowledge_that_exceeds_context_limit(
     django_user_model,
 ):
     user = django_user_model.objects.create_user(
@@ -459,14 +462,24 @@ def test_orchestrator_rejects_knowledge_that_exceeds_context_limit(
         knowledge_search=LargeKnowledgeSearch(),
     )
 
-    with pytest.raises(
-        ContextLimitError,
-        match="system message exceeds the context limit",
-    ):
-        orchestrator.chat(
-            conversation=conversation,
-            content="What is predictive maintenance?",
-        )
+    result = orchestrator.chat(
+        conversation=conversation,
+        content="What is predictive maintenance?",
+    )
+
+    assert result.assistant_message.content == (
+        "Fake assistant response"
+    )
+
+    assert len(gateway.received_messages) == 2
+
+    assert gateway.received_messages[0].role == "system"
+    assert gateway.received_messages[0].is_optional is False
+
+    assert gateway.received_messages[1].role == "user"
+    assert gateway.received_messages[1].content == (
+        "What is predictive maintenance?"
+    )
 
     assert Message.objects.filter(
         conversation=conversation,
@@ -474,7 +487,72 @@ def test_orchestrator_rejects_knowledge_that_exceeds_context_limit(
         content="What is predictive maintenance?",
     ).exists()
 
-    assert not Message.objects.filter(
+    assert Message.objects.filter(
         conversation=conversation,
         role=Message.Role.ASSISTANT,
+        content="Fake assistant response",
     ).exists()
+
+
+@pytest.mark.django_db
+def test_orchestrator_limits_retrieved_knowledge_to_context_budget(
+    django_user_model,
+):
+    user = django_user_model.objects.create_user(
+        username="ragbudgetuser",
+        password="test-password-123",
+    )
+
+    conversation = Conversation.objects.create(
+        user=user,
+        title="RAG Budget Test",
+    )
+
+    class FakeKnowledgeChunk:
+        def __init__(self, content):
+            self.content = content
+
+    class FakeKnowledgeSearch:
+        def search(
+            self,
+            query,
+            user,
+            limit=5,
+        ):
+            return [
+                FakeKnowledgeChunk("A" * 20),
+                FakeKnowledgeChunk("B" * 80),
+            ]
+
+    gateway = FakeGateway()
+
+    context_builder = ContextBuilder(
+        token_counter=CharacterTokenCounter(),
+        max_tokens=30,
+    )
+
+    orchestrator = ChatOrchestrator(
+        gateway=gateway,
+        context_builder=context_builder,
+        knowledge_search=FakeKnowledgeSearch(),
+    )
+
+    orchestrator.chat(
+        conversation=conversation,
+        content="What is predictive maintenance?",
+    )
+
+    assert any(
+        message.content == "A" * 20
+        for message in gateway.received_messages
+    )
+
+    assert not any(
+        message.content == "B" * 80
+        for message in gateway.received_messages
+    )
+
+    assert any(
+        message.content == "What is predictive maintenance?"
+        for message in gateway.received_messages
+    )

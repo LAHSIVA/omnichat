@@ -65,22 +65,26 @@ class ChatOrchestrator:
         ]
 
         if knowledge_chunks:
-            knowledge_context = "\n\n".join(
-                chunk.content
-                for chunk in knowledge_chunks
-            )
-
             chat_messages.insert(
                 0,
                 ChatMessage(
                     role="system",
                     content=(
                         "Use the following knowledge to answer the "
-                        "user's question:\n\n"
-                        f"{knowledge_context}"
+                        "user's question."
                     ),
                 ),
             )
+
+            for knowledge_chunk in knowledge_chunks:
+                chat_messages.insert(
+                    1,
+                    ChatMessage(
+                        role="system",
+                        content=knowledge_chunk.content,
+                        is_optional=True,
+                    ),
+                )
 
         bounded_messages = self.context_builder.build(
             chat_messages,

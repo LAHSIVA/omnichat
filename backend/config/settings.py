@@ -164,6 +164,7 @@ SPECTACULAR_SETTINGS = {
     "DESCRIPTION": "AI Chat and Knowledge Assistant API",
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
+    "COMPONENT_SPLIT_REQUEST": True,
 }
 
 AI_PROVIDER = env(
@@ -233,3 +234,19 @@ KNOWLEDGE_MAX_FILE_SIZE = env(
     "KNOWLEDGE_MAX_FILE_SIZE",
     default=10 * 1024 * 1024,
 )
+
+CELERY_BROKER_URL = env(
+    "CELERY_BROKER_URL",
+    default="redis://127.0.0.1:6379/0",
+)
+
+CELERY_RESULT_BACKEND = env(
+    "CELERY_RESULT_BACKEND",
+    default="redis://127.0.0.1:6379/0",
+)
+
+CELERY_TASK_TRACK_STARTED = True
+
+CELERY_TASK_TIME_LIMIT = 30 * 60
+
+CELERY_TASK_SOFT_TIME_LIMIT = 25 * 60

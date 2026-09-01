@@ -47,7 +47,7 @@ class DocumentProcessingService:
 
             for chunk, embedding in zip(chunks, embeddings):
                 chunk.embedding = embedding
-                DocumentChunk.objects.bulk_update(
+            DocumentChunk.objects.bulk_update(
                 chunks,
                 ["embedding", "updated_at"],
             )

@@ -218,3 +218,61 @@ def test_context_builder_preserves_multiple_system_messages():
     result = builder.build(messages)
 
     assert result == messages
+
+def test_context_builder_can_skip_oversized_system_message():
+    counter = CharacterTokenCounter()
+
+    builder = ContextBuilder(
+        token_counter=counter,
+        max_tokens=10,
+    )
+
+    messages = [
+        ChatMessage(
+            role="system",
+            content="x" * 80,  # 20 tokens
+            is_optional=True,
+        ),
+        ChatMessage(
+            role="user",
+            content="Hello",
+        ),
+    ]
+
+    result = builder.build(messages)
+
+    assert result == [
+        messages[1],
+    ]
+
+def test_context_builder_skips_oversized_optional_system_message_but_keeps_fitting_context():
+    counter = CharacterTokenCounter()
+
+    builder = ContextBuilder(
+        token_counter=counter,
+        max_tokens=10,
+    )
+
+    messages = [
+        ChatMessage(
+            role="system",
+            content="small",  # 2 tokens
+            is_optional=True,
+        ),
+        ChatMessage(
+            role="system",
+            content="x" * 80,  # 20 tokens — skip
+            is_optional=True,
+        ),
+        ChatMessage(
+            role="user",
+            content="Hello",  # 2 tokens
+        ),
+    ]
+
+    result = builder.build(messages)
+
+    assert result == [
+        messages[0],
+        messages[2],
+    ]

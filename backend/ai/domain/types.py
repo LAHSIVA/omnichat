@@ -5,6 +5,7 @@ from dataclasses import dataclass
 class ChatMessage:
     role: str
     content: str
+    is_optional: bool = False
 
 
 @dataclass(frozen=True)

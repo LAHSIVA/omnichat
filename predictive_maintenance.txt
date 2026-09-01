@@ -1,0 +1,5 @@
+Predictive maintenance uses machine learning to detect equipment failures before they happen.
+
+Sensors monitor equipment health and identify abnormal behavior.
+
+Historical sensor data can be used to predict failures before they occur.

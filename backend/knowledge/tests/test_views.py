@@ -1,7 +1,7 @@
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 from rest_framework.test import APIClient
-
+from unittest.mock import patch
 from knowledge.models import Document
 
 
@@ -249,3 +249,28 @@ def test_document_upload_requires_file(
     assert not Document.objects.filter(
         title="Document Without File",
     ).exists()
+
+@pytest.mark.django_db
+def test_document_upload_dispatches_processing_task(
+    authenticated_client,
+    uploaded_file,
+):
+    with patch(
+        "knowledge.views.process_document_task.delay"
+    ) as mock_task:
+        response = authenticated_client.post(
+            "/api/knowledge/documents/",
+            {
+                "title": "Task Dispatch Test",
+                "file": uploaded_file,
+            },
+            format="multipart",
+        )
+
+    assert response.status_code == 201
+
+    document = Document.objects.get(
+        id=response.json()["id"]
+    )
+
+    mock_task.assert_called_once_with(document.id)

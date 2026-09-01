@@ -3,7 +3,7 @@ from rest_framework.permissions import IsAuthenticated
 
 from knowledge.models import Document
 from knowledge.serializers import DocumentSerializer
-
+from knowledge.tasks import process_document_task
 
 class DocumentListCreateView(generics.ListCreateAPIView):
     serializer_class = DocumentSerializer
@@ -17,11 +17,13 @@ class DocumentListCreateView(generics.ListCreateAPIView):
     def perform_create(self, serializer):
         uploaded_file = self.request.FILES["file"]
 
-        serializer.save(
+        document = serializer.save(
             user=self.request.user,
             original_filename=uploaded_file.name,
             content_type=uploaded_file.content_type or "",
         )
+
+        process_document_task.delay(document.id)
 
 class DocumentDetailView(generics.RetrieveDestroyAPIView):
     serializer_class = DocumentSerializer
