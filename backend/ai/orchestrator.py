@@ -6,6 +6,7 @@ from ai.domain.types import ChatMessage, LLMResponse
 from ai.factory import create_llm_gateway
 from conversations.models import Conversation, Message
 from django.conf import settings
+from knowledge.knowledge_search import KnowledgeSearchService
 
 @dataclass(frozen=True)
 class ChatResult:
@@ -19,6 +20,7 @@ class ChatOrchestrator:
         self,
         gateway=None,
         context_builder=None,
+        knowledge_search=None,
     ):
         self.gateway = gateway or create_llm_gateway()
         self.context_builder = (
@@ -27,6 +29,10 @@ class ChatOrchestrator:
                 token_counter=CharacterTokenCounter(),
                 max_tokens=settings.AI_CONTEXT_MAX_TOKENS,
             )
+        )
+        self.knowledge_search = (
+            knowledge_search
+            or KnowledgeSearchService()
         )
 
     def chat(
@@ -42,6 +48,12 @@ class ChatOrchestrator:
             content=content,
         )
 
+        knowledge_chunks = self.knowledge_search.search(
+            query=content,
+            user=conversation.user,
+            limit=5,
+        )
+
         history = conversation.messages.order_by("created_at")
 
         chat_messages = [
@@ -51,6 +63,24 @@ class ChatOrchestrator:
             )
             for message in history
         ]
+
+        if knowledge_chunks:
+            knowledge_context = "\n\n".join(
+                chunk.content
+                for chunk in knowledge_chunks
+            )
+
+            chat_messages.insert(
+                0,
+                ChatMessage(
+                    role="system",
+                    content=(
+                        "Use the following knowledge to answer the "
+                        "user's question:\n\n"
+                        f"{knowledge_context}"
+                    ),
+                ),
+            )
 
         bounded_messages = self.context_builder.build(
             chat_messages,

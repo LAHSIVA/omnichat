@@ -5,6 +5,7 @@ from ai.orchestrator import ChatOrchestrator
 from conversations.models import Conversation, Message
 from ai.domain.exceptions import LLMProviderError
 from django.conf import settings
+from ai.domain.exceptions import ContextLimitError
 class FakeGateway:
     def __init__(self, response=None):
         self.response = response or LLMResponse(
@@ -300,3 +301,180 @@ def test_orchestrator_passes_configured_output_token_limit(
         gateway.received_max_tokens
         == settings.AI_MAX_OUTPUT_TOKENS
     )
+
+@pytest.mark.django_db
+def test_orchestrator_includes_retrieved_knowledge_in_context(
+    django_user_model,
+):
+    user = django_user_model.objects.create_user(
+        username="raguser",
+        password="test-password-123",
+    )
+
+    conversation = Conversation.objects.create(
+        user=user,
+        title="RAG Test",
+    )
+
+    class FakeKnowledgeChunk:
+        def __init__(self, content):
+            self.content = content
+
+    class FakeKnowledgeSearch:
+        def __init__(self):
+            self.received_query = None
+            self.received_user = None
+
+        def search(
+            self,
+            query,
+            user,
+            limit=5,
+        ):
+            self.received_query = query
+            self.received_user = user
+
+            return [
+                FakeKnowledgeChunk(
+                    "Predictive maintenance uses machine learning "
+                    "to detect equipment failures."
+                ),
+                FakeKnowledgeChunk(
+                    "Sensors can monitor equipment health "
+                    "and identify abnormal behavior."
+                ),
+            ]
+
+    gateway = FakeGateway()
+    knowledge_search = FakeKnowledgeSearch()
+
+    orchestrator = ChatOrchestrator(
+        gateway=gateway,
+        knowledge_search=knowledge_search,
+    )
+
+    orchestrator.chat(
+        conversation=conversation,
+        content="How does predictive maintenance work?",
+    )
+
+    assert knowledge_search.received_query == (
+        "How does predictive maintenance work?"
+    )
+
+    assert knowledge_search.received_user == user
+
+    gateway_contents = [
+        message.content
+        for message in gateway.received_messages
+    ]
+
+    assert any(
+        "Predictive maintenance uses machine learning"
+        in content
+        for content in gateway_contents
+    )
+
+    assert any(
+        "Sensors can monitor equipment health"
+        in content
+        for content in gateway_contents
+    )
+
+@pytest.mark.django_db
+def test_orchestrator_handles_no_retrieved_knowledge(
+    django_user_model,
+):
+    user = django_user_model.objects.create_user(
+        username="noraguser",
+        password="test-password-123",
+    )
+
+    conversation = Conversation.objects.create(
+        user=user,
+        title="No RAG Test",
+    )
+
+    class EmptyKnowledgeSearch:
+        def search(
+            self,
+            query,
+            user,
+            limit=5,
+        ):
+            return []
+
+    gateway = FakeGateway()
+
+    orchestrator = ChatOrchestrator(
+        gateway=gateway,
+        knowledge_search=EmptyKnowledgeSearch(),
+    )
+
+    orchestrator.chat(
+        conversation=conversation,
+        content="What is machine learning?",
+    )
+
+    assert len(gateway.received_messages) == 1
+
+    assert gateway.received_messages[0].role == Message.Role.USER
+
+    assert (
+        gateway.received_messages[0].content
+        == "What is machine learning?"
+    )
+
+@pytest.mark.django_db
+def test_orchestrator_rejects_knowledge_that_exceeds_context_limit(
+    django_user_model,
+):
+    user = django_user_model.objects.create_user(
+        username="oversizedraguser",
+        password="test-password-123",
+    )
+
+    conversation = Conversation.objects.create(
+        user=user,
+        title="Oversized RAG Test",
+    )
+
+    class LargeKnowledgeChunk:
+        def __init__(self):
+            self.content = "x" * 100000
+
+    class LargeKnowledgeSearch:
+        def search(
+            self,
+            query,
+            user,
+            limit=5,
+        ):
+            return [LargeKnowledgeChunk()]
+
+    gateway = FakeGateway()
+
+    orchestrator = ChatOrchestrator(
+        gateway=gateway,
+        knowledge_search=LargeKnowledgeSearch(),
+    )
+
+    with pytest.raises(
+        ContextLimitError,
+        match="system message exceeds the context limit",
+    ):
+        orchestrator.chat(
+            conversation=conversation,
+            content="What is predictive maintenance?",
+        )
+
+    assert Message.objects.filter(
+        conversation=conversation,
+        role=Message.Role.USER,
+        content="What is predictive maintenance?",
+    ).exists()
+
+    assert not Message.objects.filter(
+        conversation=conversation,
+        role=Message.Role.ASSISTANT,
+    ).exists()
