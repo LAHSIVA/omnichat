@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:17
+    image: pgvector/pgvector:pg17
     container_name: omnichat-postgres
     restart: unless-stopped
     environment:
@@ -12,5 +12,22 @@ services:
     ports:
       - "127.0.0.1:5432:5432"
 
+  ollama:
+    image: ollama/ollama:latest
+    container_name: omnichat-ollama
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "127.0.0.1:11434:11434"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
 volumes:
   postgres_data:
+  ollama_data:

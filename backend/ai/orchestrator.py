@@ -1,9 +1,11 @@
 from dataclasses import dataclass
 
+from ai.context.builder import ContextBuilder
+from ai.context.token_counter import CharacterTokenCounter
 from ai.domain.types import ChatMessage, LLMResponse
 from ai.factory import create_llm_gateway
 from conversations.models import Conversation, Message
-
+from django.conf import settings
 
 @dataclass(frozen=True)
 class ChatResult:
@@ -13,8 +15,19 @@ class ChatResult:
 
 
 class ChatOrchestrator:
-    def __init__(self, gateway=None):
+    def __init__(
+        self,
+        gateway=None,
+        context_builder=None,
+    ):
         self.gateway = gateway or create_llm_gateway()
+        self.context_builder = (
+            context_builder
+            or ContextBuilder(
+                token_counter=CharacterTokenCounter(),
+                max_tokens=settings.AI_CONTEXT_MAX_TOKENS,
+            )
+        )
 
     def chat(
         self,
@@ -39,9 +52,14 @@ class ChatOrchestrator:
             for message in history
         ]
 
-        llm_response = self.gateway.generate(
+        bounded_messages = self.context_builder.build(
             chat_messages,
         )
+
+        llm_response = self.gateway.generate(
+        bounded_messages,
+        max_tokens=settings.AI_MAX_OUTPUT_TOKENS,
+    )
 
         assistant_message = Message.objects.create(
             conversation=conversation,

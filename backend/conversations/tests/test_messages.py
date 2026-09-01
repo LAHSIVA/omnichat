@@ -6,12 +6,17 @@ from ai.domain.types import LLMResponse
 from ai.orchestrator import ChatOrchestrator
 from conversations.models import Conversation, Message
 from ai.domain.exceptions import LLMProviderError
-
+from ai.domain.exceptions import ContextLimitError
 User = get_user_model()
 
 
 class FakeGateway:
-    def generate(self, messages):
+    def generate(
+        self,
+        messages,
+        *,
+        max_tokens=None,
+    ):
         return LLMResponse(
             content="Fake AI response",
             model="fake-model",
@@ -19,7 +24,6 @@ class FakeGateway:
             usage=None,
             finish_reason="stop",
         )
-
 
 @pytest.fixture
 def user():
@@ -430,3 +434,37 @@ def test_llm_failure_preserves_user_message_and_creates_no_assistant(
         conversation=conversation,
         role=Message.Role.ASSISTANT,
     ).exists()
+
+@pytest.mark.django_db
+def test_oversized_message_returns_bad_request(
+    authenticated_client,
+    conversation,
+    monkeypatch,
+):
+    class FailingOrchestrator:
+        def chat(self, *, conversation, content):
+            raise ContextLimitError(
+                "latest message exceeds the context limit"
+            )
+
+    monkeypatch.setattr(
+        "conversations.views.ChatOrchestrator",
+        FailingOrchestrator,
+    )
+
+    response = authenticated_client.post(
+        f"/api/conversations/{conversation.id}/messages/",
+        {
+            "content": "A very large message",
+        },
+        format="json",
+    )
+
+    assert response.status_code == 400
+
+    assert response.json() == {
+        "detail": (
+            "The message is too large for the "
+            "configured context limit."
+        )
+    }

@@ -1,6 +1,8 @@
 class LLMError(Exception):
     """Base exception for LLM-related failures."""
 
+class ContextLimitError(LLMError):
+    """The requested context cannot fit within the configured limit."""
 
 class LLMAuthenticationError(LLMError):
     """The LLM provider rejected the configured credentials."""

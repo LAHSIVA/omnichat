@@ -70,4 +70,8 @@ urlpatterns = [
     "api/",
     include("conversations.urls"),
     ),
+    path(
+    "api/knowledge/",
+    include("knowledge.urls"),
+    ),
 ]

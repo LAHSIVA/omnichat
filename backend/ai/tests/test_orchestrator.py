@@ -4,7 +4,7 @@ from ai.domain.types import LLMResponse
 from ai.orchestrator import ChatOrchestrator
 from conversations.models import Conversation, Message
 from ai.domain.exceptions import LLMProviderError
-
+from django.conf import settings
 class FakeGateway:
     def __init__(self, response=None):
         self.response = response or LLMResponse(
@@ -15,14 +15,25 @@ class FakeGateway:
             finish_reason="stop",
         )
         self.received_messages = None
+        self.received_max_tokens = None
 
-    def generate(self, messages):
+    def generate(
+        self,
+        messages,
+        *,
+        max_tokens=None,
+    ):
         self.received_messages = messages
+        self.received_max_tokens = max_tokens
         return self.response
 
-
 class FailingGateway:
-    def generate(self, messages):
+    def generate(
+        self,
+        messages,
+        *,
+        max_tokens=None,
+    ):
         raise LLMProviderError("LLM provider failed")
 
 
@@ -204,3 +215,88 @@ def test_user_message_is_preserved_when_llm_fails(
         conversation=conversation,
         role=Message.Role.ASSISTANT,
     ).exists()
+
+def test_orchestrator_uses_context_builder(
+    django_user_model,
+):
+    user = django_user_model.objects.create_user(
+        username="contextuser",
+        password="test-password-123",
+    )
+
+    conversation = Conversation.objects.create(
+        user=user,
+        title="Context Test",
+    )
+
+    Message.objects.create(
+        conversation=conversation,
+        role=Message.Role.USER,
+        content="Old message",
+    )
+
+    gateway = FakeGateway()
+
+    class FakeContextBuilder:
+        def __init__(self):
+            self.received_messages = None
+
+        def build(self, messages):
+            self.received_messages = messages
+
+            return messages[-1:]
+
+    context_builder = FakeContextBuilder()
+
+    orchestrator = ChatOrchestrator(
+        gateway=gateway,
+        context_builder=context_builder,
+    )
+
+    orchestrator.chat(
+        conversation=conversation,
+        content="New message",
+    )
+
+    assert context_builder.received_messages is not None
+
+    assert [
+        message.content
+        for message in context_builder.received_messages
+    ] == [
+        "Old message",
+        "New message",
+    ]
+
+    assert len(gateway.received_messages) == 1
+    assert gateway.received_messages[0].content == "New message"
+
+@pytest.mark.django_db
+def test_orchestrator_passes_configured_output_token_limit(
+    django_user_model,
+):
+    user = django_user_model.objects.create_user(
+        username="outputlimituser",
+        password="test-password-123",
+    )
+
+    conversation = Conversation.objects.create(
+        user=user,
+        title="Output Limit Test",
+    )
+
+    gateway = FakeGateway()
+
+    orchestrator = ChatOrchestrator(
+        gateway=gateway,
+    )
+
+    orchestrator.chat(
+        conversation=conversation,
+        content="Explain RAG",
+    )
+
+    assert (
+        gateway.received_max_tokens
+        == settings.AI_MAX_OUTPUT_TOKENS
+    )

@@ -2,6 +2,7 @@ from rest_framework.response import Response
 from rest_framework.views import exception_handler
 
 from ai.domain.exceptions import (
+    ContextLimitError,
     LLMAuthenticationError,
     LLMError,
     LLMProviderError,
@@ -11,6 +12,16 @@ from ai.domain.exceptions import (
 
 
 def custom_exception_handler(exc, context):
+    if isinstance(exc, ContextLimitError):
+        return Response(
+            {
+                "detail": (
+                    "The message is too large for the "
+                    "configured context limit."
+                )
+            },
+            status=400,
+        )
     if isinstance(exc, LLMRateLimitError):
         return Response(
             {

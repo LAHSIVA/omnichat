@@ -57,6 +57,7 @@ INSTALLED_APPS = [
     "drf_spectacular",
     "conversations",
     "ai",
+    "knowledge",
 ]
 
 MIDDLEWARE = [
@@ -175,6 +176,16 @@ AI_MODEL = env(
     default="fake-model",
 )
 
+AI_CONTEXT_MAX_TOKENS = env(
+    "AI_CONTEXT_MAX_TOKENS",
+    default=4000,
+)
+
+AI_MAX_OUTPUT_TOKENS = env(
+    "AI_MAX_OUTPUT_TOKENS",
+    default=1000,
+)
+
 FREELLMAPI_BASE_URL = env(
     "FREELLMAPI_BASE_URL",
     default="http://localhost:3001/v1",
@@ -217,3 +228,8 @@ LOGGING = {
         },
     },
 }
+
+KNOWLEDGE_MAX_FILE_SIZE = env(
+    "KNOWLEDGE_MAX_FILE_SIZE",
+    default=10 * 1024 * 1024,
+)
