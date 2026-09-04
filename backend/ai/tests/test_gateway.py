@@ -536,3 +536,17 @@ def test_gateway_logs_missing_token_usage_safely(caplog):
     assert record.input_tokens is None
     assert record.output_tokens is None
     assert record.duration_ms >= 0
+
+def test_gateway_streams_provider_response():
+    gateway = LLMGateway(
+        provider=FakeLLMProvider(),
+        model="fake-model",
+    )
+
+    chunks = list(
+        gateway.generate_stream(
+            [], 
+        )
+    )
+
+    assert "".join(chunks) == "This is a fake AI response."

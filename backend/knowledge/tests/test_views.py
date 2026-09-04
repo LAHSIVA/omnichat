@@ -274,3 +274,138 @@ def test_document_upload_dispatches_processing_task(
     )
 
     mock_task.assert_called_once_with(document.id)
+
+
+@pytest.mark.django_db
+def test_user_can_delete_their_own_document(
+    authenticated_client,
+    user,
+):
+    document = Document.objects.create(
+        user=user,
+        title="Document To Delete",
+        original_filename="delete.txt",
+        content_type="text/plain",
+    )
+
+    response = authenticated_client.delete(
+        f"/api/knowledge/documents/{document.id}/"
+    )
+
+    assert response.status_code == 204
+
+    assert not Document.objects.filter(
+        id=document.id,
+    ).exists()
+
+@pytest.mark.django_db
+def test_user_cannot_delete_another_users_document(
+    authenticated_client,
+    user,
+):
+    other_user = user.__class__.objects.create_user(
+        username="deleteotheruser",
+        password="StrongPassword123!",
+    )
+
+    document = Document.objects.create(
+        user=other_user,
+        title="Private Document",
+        original_filename="private.txt",
+        content_type="text/plain",
+    )
+
+    response = authenticated_client.delete(
+        f"/api/knowledge/documents/{document.id}/"
+    )
+
+    assert response.status_code == 404
+
+    assert Document.objects.filter(
+        id=document.id,
+    ).exists()
+
+@pytest.mark.django_db
+def test_user_can_retry_failed_document(
+    authenticated_client,
+    user,
+):
+    document = Document.objects.create(
+        user=user,
+        title="Failed Document",
+        original_filename="failed.txt",
+        content_type="text/plain",
+        status=Document.Status.FAILED,
+    )
+
+    with patch(
+        "knowledge.views.process_document_task.delay"
+    ) as mock_task:
+        response = authenticated_client.post(
+            f"/api/knowledge/documents/{document.id}/retry/"
+        )
+
+    assert response.status_code == 202
+
+    document.refresh_from_db()
+
+    assert document.status == Document.Status.PENDING
+
+    mock_task.assert_called_once_with(document.id)
+
+@pytest.mark.django_db
+def test_user_cannot_retry_another_users_document(
+    authenticated_client,
+    user,
+):
+    other_user = user.__class__.objects.create_user(
+        username="retryotheruser",
+        password="StrongPassword123!",
+    )
+
+    document = Document.objects.create(
+        user=other_user,
+        title="Private Failed Document",
+        original_filename="private.txt",
+        content_type="text/plain",
+        status=Document.Status.FAILED,
+    )
+
+    with patch(
+        "knowledge.views.process_document_task.delay"
+    ) as mock_task:
+        response = authenticated_client.post(
+            f"/api/knowledge/documents/{document.id}/retry/"
+        )
+
+    assert response.status_code == 404
+
+    mock_task.assert_not_called()
+
+@pytest.mark.django_db
+def test_completed_document_cannot_be_retried(
+    authenticated_client,
+    user,
+):
+    document = Document.objects.create(
+        user=user,
+        title="Completed Document",
+        original_filename="completed.txt",
+        content_type="text/plain",
+        status=Document.Status.COMPLETED,
+    )
+
+    with patch(
+        "knowledge.views.process_document_task.delay"
+    ) as mock_task:
+        response = authenticated_client.post(
+            f"/api/knowledge/documents/{document.id}/retry/"
+        )
+
+    assert response.status_code == 400
+
+    assert response.json()["detail"] == (
+        "Only failed documents can be retried."
+    )
+
+    mock_task.assert_not_called()

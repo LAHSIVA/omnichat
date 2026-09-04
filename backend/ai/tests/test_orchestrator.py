@@ -8,7 +8,8 @@ from django.conf import settings
 from ai.domain.exceptions import ContextLimitError
 from ai.context.builder import ContextBuilder
 from ai.context.token_counter import CharacterTokenCounter
-
+from knowledge.models import Document, DocumentChunk
+from conversations.models import MessageSource
 class FakeGateway:
     def __init__(self, response=None):
         self.response = response or LLMResponse(
@@ -556,3 +557,262 @@ def test_orchestrator_limits_retrieved_knowledge_to_context_budget(
         message.content == "What is predictive maintenance?"
         for message in gateway.received_messages
     )
+
+@pytest.mark.django_db
+def test_orchestrator_uses_context_assembler(
+    django_user_model,
+):
+    user = django_user_model.objects.create_user(
+        username="assembleruser",
+        password="test-password-123",
+    )
+
+    conversation = Conversation.objects.create(
+        user=user,
+        title="Assembler Test",
+    )
+
+    Message.objects.create(
+        conversation=conversation,
+        role=Message.Role.USER,
+        content="Old message",
+    )
+
+    gateway = FakeGateway()
+
+    class FakeKnowledgeSearch:
+        def search(self, query, user, limit=5):
+            return []
+
+    class FakeContextAssembler:
+        def __init__(self):
+            self.received_history = None
+            self.received_knowledge = None
+
+        def assemble(
+            self,
+            *,
+            history,
+            knowledge_chunks,
+        ):
+            self.received_history = history
+            self.received_knowledge = knowledge_chunks
+            return history
+
+    assembler = FakeContextAssembler()
+
+    orchestrator = ChatOrchestrator(
+        gateway=gateway,
+        knowledge_search=FakeKnowledgeSearch(),
+        context_assembler=assembler,
+    )
+
+    orchestrator.chat(
+        conversation=conversation,
+        content="New message",
+    )
+
+    assert [
+        message.content
+        for message in assembler.received_history
+    ] == [
+        "Old message",
+        "New message",
+    ]
+
+    assert assembler.received_knowledge == []
+
+@pytest.mark.django_db
+def test_orchestrator_passes_configured_knowledge_limit(
+    django_user_model,
+    settings,
+):
+    user = django_user_model.objects.create_user(
+        username="knowledgeconfiguser",
+        password="test-password-123",
+    )
+
+    conversation = Conversation.objects.create(
+        user=user,
+        title="Knowledge Config Test",
+    )
+
+    settings.AI_KNOWLEDGE_TOP_K = 2
+
+    class FakeKnowledgeSearch:
+        def __init__(self):
+            self.received_limit = None
+
+        def search(
+            self,
+            query,
+            user,
+            limit=5,
+        ):
+            self.received_limit = limit
+            return []
+
+    knowledge_search = FakeKnowledgeSearch()
+
+    orchestrator = ChatOrchestrator(
+        gateway=FakeGateway(),
+        knowledge_search=knowledge_search,
+    )
+
+    orchestrator.chat(
+        conversation=conversation,
+        content="Explain predictive maintenance",
+    )
+
+    assert knowledge_search.received_limit == 2
+
+@pytest.mark.django_db
+def test_orchestrator_returns_retrieved_sources(
+    django_user_model,
+):
+    user = django_user_model.objects.create_user(
+        username="sourcesuser",
+        password="test-password-123",
+    )
+
+    conversation = Conversation.objects.create(
+        user=user,
+        title="Sources Test",
+    )
+    document = Document.objects.create(
+    user=user,
+    title="Predictive Maintenance",
+    original_filename="predictive_maintenance.txt",
+    content_type="text/plain",
+    )
+
+    chunk = DocumentChunk.objects.create(
+        document=document,
+        content="Predictive maintenance content.",
+        chunk_index=0,
+        embedding=[1.0] + [0.0] * 1023,
+    )
+
+    class FakeKnowledgeChunk:
+        def __init__(self):
+            self.content = "Predictive maintenance content."
+            self.document_id = document.id
+            self.document_title = document.title
+            self.original_filename = document.original_filename
+            self.chunk_id = chunk.id
+            self.chunk_index = chunk.chunk_index
+            self.distance = 0.1
+
+    class FakeKnowledgeSearch:
+        def search(
+            self,
+            query,
+            user,
+            limit=5,
+        ):
+            return [FakeKnowledgeChunk()]
+
+    gateway = FakeGateway()
+
+    orchestrator = ChatOrchestrator(
+        gateway=gateway,
+        knowledge_search=FakeKnowledgeSearch(),
+    )
+
+    result = orchestrator.chat(
+        conversation=conversation,
+        content="What is predictive maintenance?",
+    )
+
+    assert len(result.sources) == 1
+
+    assert result.sources[0].content == (
+        "Predictive maintenance content."
+    )
+
+    assert result.sources[0].document_id == 1
+
+    assert result.sources[0].document_title == (
+        "Predictive Maintenance"
+    )
+
+    assert result.sources[0].original_filename == (
+        "predictive_maintenance.txt"
+    )
+
+    assert result.sources[0].chunk_index == 0
+
+    assert result.sources[0].distance == 0.1
+
+@pytest.mark.django_db
+def test_orchestrator_persists_retrieved_sources(
+    django_user_model,
+):
+    from conversations.models import MessageSource
+    from ai.domain.types import RetrievedChunk
+
+    user = django_user_model.objects.create_user(
+        username="persistedsourceuser",
+        password="test-password-123",
+    )
+
+    conversation = Conversation.objects.create(
+        user=user,
+        title="Persisted Sources Test",
+    )
+
+    document = Document.objects.create(
+    user=user,
+    title="Predictive Maintenance",
+    original_filename="predictive_maintenance.txt",
+    content_type="text/plain",
+    )
+
+    chunk = DocumentChunk.objects.create(
+        document=document,
+        content="Predictive maintenance content.",
+        chunk_index=0,
+        embedding=[1.0] + [0.0] * 1023,
+    )
+
+    class FakeKnowledgeSearch:
+        def search(
+            self,
+            query,
+            user,
+            limit=5,
+        ):
+            return [
+                RetrievedChunk(
+                content=chunk.content,
+                document_id=document.id,
+                document_title=document.title,
+                original_filename=document.original_filename,
+                chunk_id=chunk.id,
+                chunk_index=chunk.chunk_index,
+                distance=0.12,
+            )
+            ]
+
+    gateway = FakeGateway()
+
+    orchestrator = ChatOrchestrator(
+        gateway=gateway,
+        knowledge_search=FakeKnowledgeSearch(),
+    )
+
+    result = orchestrator.chat(
+        conversation=conversation,
+        content="What is predictive maintenance?",
+    )
+
+    source = MessageSource.objects.get(
+        message=result.assistant_message,
+    )
+
+    assert source.document_id == document.id
+    assert source.chunk_id == chunk.id
+    assert source.distance == 0.12
+    assert MessageSource.objects.filter(
+        message=result.assistant_message,
+    ).count() == 1

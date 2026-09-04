@@ -74,3 +74,44 @@ class Message(models.Model):
 
     def __str__(self):
         return f"{self.role}: {self.content[:50]}"
+
+
+class MessageSource(models.Model):
+    """A knowledge chunk used to generate an assistant message."""
+
+    message = models.ForeignKey(
+        Message,
+        on_delete=models.CASCADE,
+        related_name="sources",
+    )
+
+    document = models.ForeignKey(
+        "knowledge.Document",
+        on_delete=models.CASCADE,
+        related_name="message_sources",
+    )
+
+    chunk = models.ForeignKey(
+        "knowledge.DocumentChunk",
+        on_delete=models.CASCADE,
+        related_name="message_sources",
+    )
+
+    distance = models.FloatField(
+        null=True,
+        blank=True,
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    class Meta:
+        ordering = ["id"]
+
+    def __str__(self):
+        return (
+            f"{self.message_id} - "
+            f"{self.document.title} - "
+            f"chunk {self.chunk.chunk_index}"
+        )

@@ -91,10 +91,11 @@ def test_authenticated_user_can_create_message(
 
     data = response.json()
 
-    assert data["role"] == Message.Role.ASSISTANT
-    assert data["content"] == "Fake AI response"
-    assert "id" in data
-    assert "created_at" in data
+    assert data["message"]["role"] == Message.Role.ASSISTANT
+    assert data["message"]["content"] == "Fake AI response"
+    assert "id" in data["message"]
+    assert "created_at" in data["message"]
+    assert data["sources"] == []
 
     user_message = Message.objects.get(
         conversation=conversation,
@@ -104,7 +105,7 @@ def test_authenticated_user_can_create_message(
     assert user_message.content == "What is RAG?"
 
     assistant_message = Message.objects.get(
-        id=data["id"],
+        id=data["message"]["id"],
     )
 
     assert assistant_message.conversation == conversation
@@ -132,8 +133,9 @@ def test_message_role_cannot_be_spoofed(
     data = response.json()
 
     # The client-supplied role must be ignored.
-    assert data["role"] == Message.Role.ASSISTANT
-    assert data["content"] == "Fake AI response"
+    assert data["message"]["role"] == Message.Role.ASSISTANT
+    assert data["message"]["content"] == "Fake AI response"
+    assert data["sources"] == []
 
     user_message = Message.objects.get(
         conversation=conversation,
@@ -468,3 +470,149 @@ def test_oversized_message_returns_bad_request(
             "configured context limit."
         )
     }
+
+
+@pytest.mark.django_db
+def test_authenticated_user_can_create_message_with_sources(
+    authenticated_client,
+    conversation,
+    monkeypatch,
+):
+    from ai.domain.types import RetrievedChunk
+
+    class SourceOrchestrator:
+        def chat(self, *, conversation, content):
+            user_message = Message.objects.create(
+                conversation=conversation,
+                role=Message.Role.USER,
+                content=content,
+            )
+
+            assistant_message = Message.objects.create(
+                conversation=conversation,
+                role=Message.Role.ASSISTANT,
+                content="Predictive maintenance detects failures.",
+            )
+
+            return type(
+                "ChatResult",
+                (),
+                {
+                    "user_message": user_message,
+                    "assistant_message": assistant_message,
+                    "llm_response": None,
+                    "sources": [
+                        RetrievedChunk(
+                            content=(
+                                "Predictive maintenance detects "
+                                "equipment failures."
+                            ),
+                            document_id=42,
+                            document_title="Predictive Maintenance",
+                            original_filename=(
+                                "predictive_maintenance.txt"
+                            ),
+                            chunk_id=1,
+                            chunk_index=0,
+                            distance=0.12,
+                        ),
+                    ],
+                },
+            )()
+
+    monkeypatch.setattr(
+        "conversations.views.ChatOrchestrator",
+        SourceOrchestrator,
+    )
+
+    response = authenticated_client.post(
+        f"/api/conversations/{conversation.id}/messages/",
+        {
+            "content": "What is predictive maintenance?",
+        },
+        format="json",
+    )
+
+    assert response.status_code == 201
+
+    data = response.json()
+
+    assert data["message"]["content"] == (
+        "Predictive maintenance detects failures."
+    )
+
+    assert len(data["sources"]) == 1
+
+    source = data["sources"][0]
+
+    assert source["document_id"] == 42
+    assert source["document_title"] == "Predictive Maintenance"
+    assert source["original_filename"] == (
+        "predictive_maintenance.txt"
+    )
+    assert source["chunk_index"] == 0
+    assert source["distance"] == 0.12
+
+@pytest.mark.django_db
+def test_authenticated_user_can_list_messages_with_persisted_sources(
+    authenticated_client,
+    conversation,
+):
+    from conversations.models import MessageSource
+    from knowledge.models import Document, DocumentChunk
+
+    document = Document.objects.create(
+        user=conversation.user,
+        title="Predictive Maintenance",
+        original_filename="predictive_maintenance.txt",
+        content_type="text/plain",
+    )
+
+    chunk = DocumentChunk.objects.create(
+        document=document,
+        content="Predictive maintenance detects equipment failures.",
+        chunk_index=0,
+        embedding=[1.0] + [0.0] * 1023,
+    )
+
+    assistant_message = Message.objects.create(
+        conversation=conversation,
+        role=Message.Role.ASSISTANT,
+        content="Predictive maintenance detects failures.",
+    )
+
+    MessageSource.objects.create(
+        message=assistant_message,
+        document=document,
+        chunk=chunk,
+        distance=0.12,
+    )
+
+    response = authenticated_client.get(
+        f"/api/conversations/{conversation.id}/messages/"
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert len(data) == 1
+
+    message = data[0]
+
+    assert message["role"] == Message.Role.ASSISTANT
+    assert message["content"] == (
+        "Predictive maintenance detects failures."
+    )
+
+    assert len(message["sources"]) == 1
+
+    source = message["sources"][0]
+
+    assert source["document_id"] == document.id
+    assert source["document_title"] == "Predictive Maintenance"
+    assert source["original_filename"] == (
+        "predictive_maintenance.txt"
+    )
+    assert source["chunk_index"] == 0
+    assert source["distance"] == 0.12

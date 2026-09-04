@@ -244,3 +244,15 @@ def test_freellmapi_connection_error_is_translated():
             ],
             model="gemini-3-flash-preview",
         )
+
+def test_fake_provider_streams_response():
+    provider = FakeLLMProvider()
+
+    chunks = list(
+        provider.generate_stream(
+            [],
+            model="fake-model",
+        )
+    )
+
+    assert "".join(chunks) == "This is a fake AI response."

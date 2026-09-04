@@ -2,6 +2,7 @@ from knowledge.chunking_service import DocumentChunkingService
 from knowledge.embeddings import OllamaEmbeddingProvider
 from knowledge.extractors import DocumentExtractorFactory
 from knowledge.models import Document, DocumentChunk
+from django.db import transaction
 
 class DocumentProcessingService:
     def __init__(
@@ -29,40 +30,42 @@ class DocumentProcessingService:
         )
 
         try:
-            extractor = DocumentExtractorFactory.get_extractor(
-                document.content_type,
-            )
+            with transaction.atomic():
+                extractor = DocumentExtractorFactory.get_extractor(
+                    document.content_type,
+                )
 
-            text = extractor.extract(document)
+                text = extractor.extract(document)
 
-            document.extracted_text = text
+                document.extracted_text = text
 
-            chunks = self.chunking_service.create_chunks(
-                document,
-            )
+                chunks = self.chunking_service.create_chunks(
+                    document,
+                )
 
-            embeddings = self.embedding_provider.embed(
-                [chunk.content for chunk in chunks]
-            )
+                embeddings = self.embedding_provider.embed(
+                    [chunk.content for chunk in chunks]
+                )
 
-            for chunk, embedding in zip(chunks, embeddings):
-                chunk.embedding = embedding
-            DocumentChunk.objects.bulk_update(
-                chunks,
-                ["embedding", "updated_at"],
-            )
+                for chunk, embedding in zip(chunks, embeddings):
+                    chunk.embedding = embedding
 
-            document.status = Document.Status.COMPLETED
+                DocumentChunk.objects.bulk_update(
+                    chunks,
+                    ["embedding", "updated_at"],
+                )
 
-            document.save(
-                update_fields=[
-                    "extracted_text",
-                    "status",
-                    "updated_at",
-                ]
-            )
+                document.status = Document.Status.COMPLETED
 
-            return text
+                document.save(
+                    update_fields=[
+                        "extracted_text",
+                        "status",
+                        "updated_at",
+                    ]
+                )
+
+                return text
 
         except Exception:
             document.status = Document.Status.FAILED

@@ -1,7 +1,6 @@
 services:
   postgres:
     image: pgvector/pgvector:pg17
-    container_name: omnichat-postgres
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
@@ -11,30 +10,123 @@ services:
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "127.0.0.1:5432:5432"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   ollama:
     image: ollama/ollama:latest
-    container_name: omnichat-ollama
     restart: unless-stopped
     volumes:
       - ollama_data:/root/.ollama
-    ports:
-      - "127.0.0.1:11434:11434"
+    expose:
+      - "11434"
     deploy:
       resources:
         reservations:
           devices:
             - driver: nvidia
               count: 1
-              capabilities: [gpu]
+              capabilities:
+                - gpu
 
-  redis:
-    image: redis:7-alpine
-    container_name: omnichat-redis
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    image: omnichat-backend:local
     restart: unless-stopped
-    ports:
-      - "127.0.0.1:6379:6379"
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+      DJANGO_DEBUG: ${DJANGO_DEBUG}
 
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+
+      OLLAMA_BASE_URL: http://ollama:11434
+
+      FREELLMAPI_BASE_URL: http://host.docker.internal:3001/v1
+      FREELLMAPI_API_KEY: ${FREELLMAPI_API_KEY}
+
+      AI_PROVIDER: ${AI_PROVIDER}
+      AI_MODEL: ${AI_MODEL}
+      AI_CONTEXT_MAX_TOKENS: ${AI_CONTEXT_MAX_TOKENS:-4000}
+      AI_MAX_OUTPUT_TOKENS: ${AI_MAX_OUTPUT_TOKENS:-4096}
+      AI_KNOWLEDGE_TOP_K: ${AI_KNOWLEDGE_TOP_K:-5}
+
+      KNOWLEDGE_MAX_FILE_SIZE: ${KNOWLEDGE_MAX_FILE_SIZE:-10485760}
+      KNOWLEDGE_SEARCH_MAX_DISTANCE: ${KNOWLEDGE_SEARCH_MAX_DISTANCE:-0.50}
+
+    ports:
+      - "127.0.0.1:8000:8000"
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery:
+    image: omnichat-backend:local
+    restart: unless-stopped
+    command: >
+      celery -A config worker
+      --loglevel=INFO
+      --concurrency=1
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+      DJANGO_DEBUG: ${DJANGO_DEBUG}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      OLLAMA_BASE_URL: http://ollama:11434
+      FREELLMAPI_BASE_URL: http://host.docker.internal:3001/v1
+      FREELLMAPI_API_KEY: ${FREELLMAPI_API_KEY}
+      AI_PROVIDER: ${AI_PROVIDER}
+      AI_MODEL: ${AI_MODEL}
+      AI_CONTEXT_MAX_TOKENS: ${AI_CONTEXT_MAX_TOKENS:-4000}
+      AI_MAX_OUTPUT_TOKENS: ${AI_MAX_OUTPUT_TOKENS:-4096}
+      AI_KNOWLEDGE_TOP_K: ${AI_KNOWLEDGE_TOP_K:-5}
+      KNOWLEDGE_MAX_FILE_SIZE: ${KNOWLEDGE_MAX_FILE_SIZE:-10485760}
+      KNOWLEDGE_SEARCH_MAX_DISTANCE: ${KNOWLEDGE_SEARCH_MAX_DISTANCE:-0.50}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+        
 volumes:
   postgres_data:
+  redis_data:
   ollama_data:

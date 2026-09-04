@@ -2,7 +2,9 @@ from collections.abc import Callable
 from time import sleep
 from typing import TypeVar
 import logging
+
 from ai.domain.exceptions import LLMRateLimitError
+
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
@@ -19,7 +21,9 @@ class RetryPolicy:
             raise ValueError("max_attempts must be at least 1")
 
         if backoff_seconds < 0:
-            raise ValueError("backoff_seconds cannot be negative")
+            raise ValueError(
+                "backoff_seconds cannot be negative"
+            )
 
         self.max_attempts = max_attempts
         self.backoff_seconds = backoff_seconds
@@ -44,4 +48,11 @@ class RetryPolicy:
                     },
                 )
 
-                sleep(self.backoff_seconds)
+                self.sleep()
+
+        raise RuntimeError(
+            "Retry policy exhausted without returning or raising."
+        )
+
+    def sleep(self) -> None:
+        sleep(self.backoff_seconds)

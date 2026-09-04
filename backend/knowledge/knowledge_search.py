@@ -1,3 +1,5 @@
+from ai.domain.types import RetrievedChunk
+
 from knowledge.embeddings import (
     EmbeddingProvider,
     OllamaEmbeddingProvider,
@@ -31,8 +33,25 @@ class KnowledgeSearchService:
             [query],
         )[0]
 
-        return self.search_service.search(
+        chunks = self.search_service.search(
             query_embedding=query_embedding,
             user=user,
             limit=limit,
         )
+
+        return [
+            RetrievedChunk(
+                content=chunk.content,
+                document_id=chunk.document_id,
+                document_title=chunk.document.title,
+                original_filename=chunk.document.original_filename,
+                chunk_id=chunk.id,
+                chunk_index=chunk.chunk_index,
+                distance=(
+                    float(chunk.distance)
+                    if chunk.distance is not None
+                    else None
+                ),
+            )
+            for chunk in chunks
+        ]

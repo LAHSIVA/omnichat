@@ -9,6 +9,17 @@ class ChatMessage:
 
 
 @dataclass(frozen=True)
+class RetrievedChunk:
+    content: str
+    document_id: int
+    document_title: str
+    original_filename: str
+    chunk_id: int
+    chunk_index: int
+    distance: float | None
+
+
+@dataclass(frozen=True)
 class TokenUsage:
     input_tokens: int
     output_tokens: int

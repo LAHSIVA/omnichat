@@ -79,6 +79,14 @@ class DocumentChunk(models.Model):
         auto_now=True,
     )
 
+    def delete(self, *args, **kwargs):
+        file = self.file
+
+        super().delete(*args, **kwargs)
+
+        if file:
+            file.delete(save=False)
+
     class Meta:
         ordering = ["chunk_index"]
         constraints = [

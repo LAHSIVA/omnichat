@@ -1,3 +1,5 @@
+from collections.abc import Iterator
+
 from ai.domain.types import ChatMessage, LLMResponse, TokenUsage
 from ai.providers.base import LLMProvider
 
@@ -23,3 +25,21 @@ class FakeLLMProvider(LLMProvider):
             ),
             finish_reason="stop",
         )
+
+    def generate_stream(
+        self,
+        messages: list[ChatMessage],
+        *,
+        model: str,
+        temperature: float = 0.2,
+        max_tokens: int | None = None,
+    ) -> Iterator[str]:
+        response = "This is a fake AI response."
+
+        words = response.split()
+
+        for index, word in enumerate(words):
+            if index < len(words) - 1:
+                yield f"{word} "
+            else:
+                yield word

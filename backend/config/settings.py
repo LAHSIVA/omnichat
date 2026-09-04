@@ -58,6 +58,7 @@ INSTALLED_APPS = [
     "conversations",
     "ai",
     "knowledge",
+    "corsheaders",
 ]
 
 MIDDLEWARE = [
@@ -68,6 +69,7 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "corsheaders.middleware.CorsMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"
@@ -142,7 +144,7 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = "static/"
-
+STATIC_ROOT = BASE_DIR / "staticfiles"
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
@@ -184,7 +186,12 @@ AI_CONTEXT_MAX_TOKENS = env(
 
 AI_MAX_OUTPUT_TOKENS = env(
     "AI_MAX_OUTPUT_TOKENS",
-    default=1000,
+    default=4096,
+)
+
+AI_KNOWLEDGE_TOP_K = env(
+    "AI_KNOWLEDGE_TOP_K",
+    default=5,
 )
 
 FREELLMAPI_BASE_URL = env(
@@ -245,8 +252,18 @@ CELERY_RESULT_BACKEND = env(
     default="redis://127.0.0.1:6379/0",
 )
 
+KNOWLEDGE_SEARCH_MAX_DISTANCE = env(
+    "KNOWLEDGE_SEARCH_MAX_DISTANCE",
+    default=0.50,
+)
+
 CELERY_TASK_TRACK_STARTED = True
 
 CELERY_TASK_TIME_LIMIT = 30 * 60
 
 CELERY_TASK_SOFT_TIME_LIMIT = 25 * 60
+
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://localhost:5174",
+]
