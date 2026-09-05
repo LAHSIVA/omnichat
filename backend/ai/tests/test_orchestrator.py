@@ -1,15 +1,17 @@
 import pytest
+from django.conf import settings
 
+from ai.context.builder import ContextBuilder
+from ai.context.token_counter import CharacterTokenCounter
+from ai.domain.exceptions import ContextLimitError
+from ai.domain.exceptions import LLMProviderError
 from ai.domain.types import LLMResponse
 from ai.orchestrator import ChatOrchestrator
 from conversations.models import Conversation, Message
-from ai.domain.exceptions import LLMProviderError
-from django.conf import settings
-from ai.domain.exceptions import ContextLimitError
-from ai.context.builder import ContextBuilder
-from ai.context.token_counter import CharacterTokenCounter
-from knowledge.models import Document, DocumentChunk
 from conversations.models import MessageSource
+from knowledge.models import Document, DocumentChunk
+
+
 class FakeGateway:
     def __init__(self, response=None):
         self.response = response or LLMResponse(
@@ -32,6 +34,7 @@ class FakeGateway:
         self.received_max_tokens = max_tokens
         return self.response
 
+
 class FailingGateway:
     def generate(
         self,
@@ -42,9 +45,33 @@ class FailingGateway:
         raise LLMProviderError("LLM provider failed")
 
 
+class FakeKnowledgeSearch:
+    def __init__(self, *args, **kwargs):
+        self.received_query = None
+        self.received_limit = None
+
+    def search(self, query, user, limit=5):
+        self.received_query = query
+        self.received_limit = limit
+        return []
+
+
+@pytest.fixture(autouse=True)
+def prevent_real_ollama(monkeypatch):
+    monkeypatch.setattr(
+        "ai.orchestrator.KnowledgeSearchService",
+        FakeKnowledgeSearch,
+    )
+
+@pytest.fixture
+def fake_knowledge_search():
+    return FakeKnowledgeSearch()
+
+
 @pytest.mark.django_db
 def test_user_message_is_persisted(
     django_user_model,
+    fake_knowledge_search,
 ):
     user = django_user_model.objects.create_user(
         username="persistuser",
@@ -57,7 +84,11 @@ def test_user_message_is_persisted(
     )
 
     gateway = FakeGateway()
-    orchestrator = ChatOrchestrator(gateway=gateway)
+
+    orchestrator = ChatOrchestrator(
+        gateway=gateway,
+        knowledge_search=fake_knowledge_search,
+    )
 
     result = orchestrator.chat(
         conversation=conversation,
@@ -77,6 +108,7 @@ def test_user_message_is_persisted(
 @pytest.mark.django_db
 def test_gateway_receives_conversation_history(
     django_user_model,
+    fake_knowledge_search,
 ):
     user = django_user_model.objects.create_user(
         username="historyuser",
@@ -101,7 +133,11 @@ def test_gateway_receives_conversation_history(
     )
 
     gateway = FakeGateway()
-    orchestrator = ChatOrchestrator(gateway=gateway)
+
+    orchestrator = ChatOrchestrator(
+        gateway=gateway,
+        knowledge_search=fake_knowledge_search,
+    )
 
     orchestrator.chat(
         conversation=conversation,
@@ -114,7 +150,10 @@ def test_gateway_receives_conversation_history(
     assert gateway.received_messages[0].content == "Hello"
 
     assert gateway.received_messages[1].role == Message.Role.ASSISTANT
-    assert gateway.received_messages[1].content == "Hi! How can I help?"
+    assert (
+        gateway.received_messages[1].content
+        == "Hi! How can I help?"
+    )
 
     assert gateway.received_messages[2].role == Message.Role.USER
     assert gateway.received_messages[2].content == "Explain RAG"
@@ -123,6 +162,7 @@ def test_gateway_receives_conversation_history(
 @pytest.mark.django_db
 def test_assistant_response_is_persisted(
     django_user_model,
+    fake_knowledge_search,
 ):
     user = django_user_model.objects.create_user(
         username="assistantuser",
@@ -135,7 +175,11 @@ def test_assistant_response_is_persisted(
     )
 
     gateway = FakeGateway()
-    orchestrator = ChatOrchestrator(gateway=gateway)
+
+    orchestrator = ChatOrchestrator(
+        gateway=gateway,
+        knowledge_search=fake_knowledge_search,
+    )
 
     result = orchestrator.chat(
         conversation=conversation,
@@ -157,6 +201,7 @@ def test_assistant_response_is_persisted(
 @pytest.mark.django_db
 def test_chat_returns_complete_chat_result(
     django_user_model,
+    fake_knowledge_search,
 ):
     user = django_user_model.objects.create_user(
         username="resultuser",
@@ -169,7 +214,11 @@ def test_chat_returns_complete_chat_result(
     )
 
     gateway = FakeGateway()
-    orchestrator = ChatOrchestrator(gateway=gateway)
+
+    orchestrator = ChatOrchestrator(
+        gateway=gateway,
+        knowledge_search=fake_knowledge_search,
+    )
 
     result = orchestrator.chat(
         conversation=conversation,
@@ -179,10 +228,14 @@ def test_chat_returns_complete_chat_result(
     assert result.user_message.content == "What is an embedding?"
     assert result.user_message.role == Message.Role.USER
 
-    assert result.assistant_message.content == "Fake assistant response"
+    assert result.assistant_message.content == (
+        "Fake assistant response"
+    )
     assert result.assistant_message.role == Message.Role.ASSISTANT
 
-    assert result.llm_response.content == "Fake assistant response"
+    assert result.llm_response.content == (
+        "Fake assistant response"
+    )
     assert result.llm_response.provider == "fake"
     assert result.llm_response.model == "fake-model"
 
@@ -190,6 +243,7 @@ def test_chat_returns_complete_chat_result(
 @pytest.mark.django_db
 def test_user_message_is_preserved_when_llm_fails(
     django_user_model,
+    fake_knowledge_search,
 ):
     user = django_user_model.objects.create_user(
         username="failureuser",
@@ -202,9 +256,16 @@ def test_user_message_is_preserved_when_llm_fails(
     )
 
     gateway = FailingGateway()
-    orchestrator = ChatOrchestrator(gateway=gateway)
 
-    with pytest.raises(LLMProviderError, match="LLM provider failed"):
+    orchestrator = ChatOrchestrator(
+        gateway=gateway,
+        knowledge_search=fake_knowledge_search,
+    )
+
+    with pytest.raises(
+        LLMProviderError,
+        match="LLM provider failed",
+    ):
         orchestrator.chat(
             conversation=conversation,
             content="This should survive an LLM failure",
@@ -221,8 +282,11 @@ def test_user_message_is_preserved_when_llm_fails(
         role=Message.Role.ASSISTANT,
     ).exists()
 
+
+@pytest.mark.django_db
 def test_orchestrator_uses_context_builder(
     django_user_model,
+    fake_knowledge_search,
 ):
     user = django_user_model.objects.create_user(
         username="contextuser",
@@ -248,7 +312,6 @@ def test_orchestrator_uses_context_builder(
 
         def build(self, messages):
             self.received_messages = messages
-
             return messages[-1:]
 
     context_builder = FakeContextBuilder()
@@ -256,6 +319,7 @@ def test_orchestrator_uses_context_builder(
     orchestrator = ChatOrchestrator(
         gateway=gateway,
         context_builder=context_builder,
+        knowledge_search=fake_knowledge_search,
     )
 
     orchestrator.chat(
@@ -276,9 +340,11 @@ def test_orchestrator_uses_context_builder(
     assert len(gateway.received_messages) == 1
     assert gateway.received_messages[0].content == "New message"
 
+
 @pytest.mark.django_db
 def test_orchestrator_passes_configured_output_token_limit(
     django_user_model,
+    fake_knowledge_search,
 ):
     user = django_user_model.objects.create_user(
         username="outputlimituser",
@@ -294,6 +360,7 @@ def test_orchestrator_passes_configured_output_token_limit(
 
     orchestrator = ChatOrchestrator(
         gateway=gateway,
+        knowledge_search=fake_knowledge_search,
     )
 
     orchestrator.chat(
@@ -305,6 +372,7 @@ def test_orchestrator_passes_configured_output_token_limit(
         gateway.received_max_tokens
         == settings.AI_MAX_OUTPUT_TOKENS
     )
+
 
 @pytest.mark.django_db
 def test_orchestrator_includes_retrieved_knowledge_in_context(
@@ -385,6 +453,7 @@ def test_orchestrator_includes_retrieved_knowledge_in_context(
         for content in gateway_contents
     )
 
+
 @pytest.mark.django_db
 def test_orchestrator_handles_no_retrieved_knowledge(
     django_user_model,
@@ -428,6 +497,7 @@ def test_orchestrator_handles_no_retrieved_knowledge(
         gateway.received_messages[0].content
         == "What is machine learning?"
     )
+
 
 @pytest.mark.django_db
 def test_orchestrator_skips_knowledge_that_exceeds_context_limit(
@@ -558,6 +628,7 @@ def test_orchestrator_limits_retrieved_knowledge_to_context_budget(
         for message in gateway.received_messages
     )
 
+
 @pytest.mark.django_db
 def test_orchestrator_uses_context_assembler(
     django_user_model,
@@ -581,7 +652,12 @@ def test_orchestrator_uses_context_assembler(
     gateway = FakeGateway()
 
     class FakeKnowledgeSearch:
-        def search(self, query, user, limit=5):
+        def search(
+            self,
+            query,
+            user,
+            limit=5,
+        ):
             return []
 
     class FakeContextAssembler:
@@ -621,6 +697,7 @@ def test_orchestrator_uses_context_assembler(
     ]
 
     assert assembler.received_knowledge == []
+
 
 @pytest.mark.django_db
 def test_orchestrator_passes_configured_knowledge_limit(
@@ -666,6 +743,7 @@ def test_orchestrator_passes_configured_knowledge_limit(
 
     assert knowledge_search.received_limit == 2
 
+
 @pytest.mark.django_db
 def test_orchestrator_returns_retrieved_sources(
     django_user_model,
@@ -679,11 +757,12 @@ def test_orchestrator_returns_retrieved_sources(
         user=user,
         title="Sources Test",
     )
+
     document = Document.objects.create(
-    user=user,
-    title="Predictive Maintenance",
-    original_filename="predictive_maintenance.txt",
-    content_type="text/plain",
+        user=user,
+        title="Predictive Maintenance",
+        original_filename="predictive_maintenance.txt",
+        content_type="text/plain",
     )
 
     chunk = DocumentChunk.objects.create(
@@ -730,7 +809,7 @@ def test_orchestrator_returns_retrieved_sources(
         "Predictive maintenance content."
     )
 
-    assert result.sources[0].document_id == 1
+    assert result.sources[0].document_id == document.id
 
     assert result.sources[0].document_title == (
         "Predictive Maintenance"
@@ -744,13 +823,11 @@ def test_orchestrator_returns_retrieved_sources(
 
     assert result.sources[0].distance == 0.1
 
+
 @pytest.mark.django_db
 def test_orchestrator_persists_retrieved_sources(
     django_user_model,
 ):
-    from conversations.models import MessageSource
-    from ai.domain.types import RetrievedChunk
-
     user = django_user_model.objects.create_user(
         username="persistedsourceuser",
         password="test-password-123",
@@ -762,10 +839,10 @@ def test_orchestrator_persists_retrieved_sources(
     )
 
     document = Document.objects.create(
-    user=user,
-    title="Predictive Maintenance",
-    original_filename="predictive_maintenance.txt",
-    content_type="text/plain",
+        user=user,
+        title="Predictive Maintenance",
+        original_filename="predictive_maintenance.txt",
+        content_type="text/plain",
     )
 
     chunk = DocumentChunk.objects.create(
@@ -782,16 +859,18 @@ def test_orchestrator_persists_retrieved_sources(
             user,
             limit=5,
         ):
+            from ai.domain.types import RetrievedChunk
+
             return [
                 RetrievedChunk(
-                content=chunk.content,
-                document_id=document.id,
-                document_title=document.title,
-                original_filename=document.original_filename,
-                chunk_id=chunk.id,
-                chunk_index=chunk.chunk_index,
-                distance=0.12,
-            )
+                    content=chunk.content,
+                    document_id=document.id,
+                    document_title=document.title,
+                    original_filename=document.original_filename,
+                    chunk_id=chunk.id,
+                    chunk_index=chunk.chunk_index,
+                    distance=0.12,
+                )
             ]
 
     gateway = FakeGateway()
@@ -813,6 +892,7 @@ def test_orchestrator_persists_retrieved_sources(
     assert source.document_id == document.id
     assert source.chunk_id == chunk.id
     assert source.distance == 0.12
+
     assert MessageSource.objects.filter(
         message=result.assistant_message,
     ).count() == 1

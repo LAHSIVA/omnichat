@@ -30,6 +30,9 @@ RUN useradd \
         --shell /usr/sbin/nologin \
         appuser
 
+RUN mkdir -p /app/staticfiles /app/media \
+    && chown appuser:appuser /app/staticfiles /app/media
+
 USER appuser
 
 EXPOSE 8000

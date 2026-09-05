@@ -148,6 +148,10 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
+# User-uploaded files
+MEDIA_URL = "media/"
+MEDIA_ROOT = BASE_DIR / "media"
+
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 REST_FRAMEWORK = {
@@ -192,6 +196,21 @@ AI_MAX_OUTPUT_TOKENS = env(
 AI_KNOWLEDGE_TOP_K = env(
     "AI_KNOWLEDGE_TOP_K",
     default=5,
+)
+
+OLLAMA_BASE_URL = env(
+    "OLLAMA_BASE_URL",
+    default="http://localhost:11434",
+)
+
+OLLAMA_EMBEDDING_MODEL = env(
+    "OLLAMA_EMBEDDING_MODEL",
+    default="bge-m3",
+)
+
+OLLAMA_EMBEDDING_DIMENSIONS = env(
+    "OLLAMA_EMBEDDING_DIMENSIONS",
+    default=1024,
 )
 
 FREELLMAPI_BASE_URL = env(

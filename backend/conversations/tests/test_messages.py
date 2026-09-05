@@ -65,11 +65,23 @@ def conversation(user):
 
 @pytest.fixture
 def fake_orchestrator(monkeypatch):
+    class FakeKnowledgeSearch:
+        def search(self, query, user, limit=5):
+            return []
+
+    fake_knowledge_search = FakeKnowledgeSearch()
+
     monkeypatch.setattr(
         "conversations.views.ChatOrchestrator",
         lambda: ChatOrchestrator(
             gateway=FakeGateway(),
+            knowledge_search=fake_knowledge_search,
         ),
+    )
+
+    monkeypatch.setattr(
+        "ai.orchestrator.KnowledgeSearchService",
+        lambda: fake_knowledge_search,
     )
 
 
