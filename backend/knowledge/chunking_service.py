@@ -1,5 +1,5 @@
 from knowledge.chunking import TextChunker
-from knowledge.models import Document, DocumentChunk
+from knowledge.models import DocumentChunk
 
 
 class DocumentChunkingService:

@@ -1,8 +1,9 @@
+from django.db import transaction
+
 from knowledge.chunking_service import DocumentChunkingService
 from knowledge.embeddings import OllamaEmbeddingProvider
 from knowledge.extractors import DocumentExtractorFactory
 from knowledge.models import Document, DocumentChunk
-from django.db import transaction
 
 class DocumentProcessingService:
     def __init__(

@@ -1,5 +1,5 @@
 import pytest
-
+from knowledge.models import Document, DocumentChunk
 
 class FakeKnowledgeSearch:
     """Fake knowledge search used by unit tests."""

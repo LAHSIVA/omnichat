@@ -16,7 +16,6 @@ from ai.domain.exceptions import (
 from ai.domain.types import ChatMessage, LLMResponse, TokenUsage
 from ai.providers.base import LLMProvider
 from collections.abc import Iterator
-from collections.abc import Iterator
 class FreeLLMAPIProvider(LLMProvider):
     """OpenAI-compatible provider backed by FreeLLMAPI."""
 

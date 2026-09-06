@@ -42,33 +42,62 @@ export function AuthProvider({
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    let isMounted = true;
+
     async function restoreSession() {
       const accessToken = getAccessToken();
       const refreshToken = getRefreshToken();
 
       if (!accessToken && !refreshToken) {
-        setIsLoading(false);
+        if (isMounted) {
+          setIsLoading(false);
+        }
+
         return;
       }
 
       try {
         const currentUser = await getCurrentUser();
-        setUser(currentUser);
+
+        if (isMounted) {
+          setUser(currentUser);
+        }
       } catch {
+        /*
+         * The API client already attempts an access-token
+         * refresh when the current access token has expired.
+         *
+         * If we reach this point, the session could not
+         * be restored. Treat it as a normal signed-out state.
+         */
         clearTokens();
-        setUser(null);
+
+        if (isMounted) {
+          setUser(null);
+        }
       } finally {
-        setIsLoading(false);
+        if (isMounted) {
+          setIsLoading(false);
+        }
       }
     }
 
     void restoreSession();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
-  async function login(data: LoginRequest): Promise<void> {
+  async function login(
+    data: LoginRequest,
+  ): Promise<void> {
     const tokens = await loginRequest(data);
 
-    setTokens(tokens.access, tokens.refresh);
+    setTokens(
+      tokens.access,
+      tokens.refresh,
+    );
 
     const currentUser = await getCurrentUser();
 

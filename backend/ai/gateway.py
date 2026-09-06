@@ -1,17 +1,20 @@
-from ai.domain.types import ChatMessage, LLMResponse
-from ai.providers.base import LLMProvider
-from ai.resilience.retry import RetryPolicy
 import logging
-from collections.abc import Iterator
 from time import perf_counter
+
 from ai.domain.exceptions import (
     LLMProviderError,
     LLMRateLimitError,
     LLMTimeoutError,
 )
+from ai.domain.types import ChatMessage, LLMResponse
+from ai.providers.base import LLMProvider
+from ai.resilience.retry import RetryPolicy
+
 logger = logging.getLogger(__name__)
+
+
 class LLMGateway:
-    """Routes LLM requests to the configured provider."""
+    """Gateway that adds retry and observability around an LLM provider."""
 
     def __init__(
         self,
@@ -26,48 +29,52 @@ class LLMGateway:
     def generate(
         self,
         messages: list[ChatMessage],
-        *,
         temperature: float = 0.2,
-        max_tokens: int | None = None,
+        max_tokens: int = 4096,
     ) -> LLMResponse:
+        start_time = perf_counter()
+
+        provider_name = type(self.provider).__name__
+
         logger.info(
             "LLM request started",
             extra={
-                "provider": self.provider.__class__.__name__,
+                "provider": provider_name,
                 "model": self.model,
             },
         )
 
-        start_time = perf_counter()
-
         try:
             response = self.retry_policy.execute(
                 lambda: self.provider.generate(
-                    messages,
+                    messages=messages,
                     model=self.model,
                     temperature=temperature,
                     max_tokens=max_tokens,
                 )
             )
-
         except Exception as exc:
             duration_ms = (perf_counter() - start_time) * 1000
 
             logger.error(
                 "LLM request failed",
                 extra={
-                    "provider": self.provider.__class__.__name__,
+                    "provider": provider_name,
                     "model": self.model,
-                    "error_type": type(exc).__name__,
                     "duration_ms": round(duration_ms, 2),
+                    "error_type": type(exc).__name__,
                 },
             )
-
             raise
 
         duration_ms = (perf_counter() - start_time) * 1000
 
-        usage = response.usage
+        input_tokens = None
+        output_tokens = None
+
+        if response.usage is not None:
+            input_tokens = response.usage.input_tokens
+            output_tokens = response.usage.output_tokens
 
         logger.info(
             "LLM request completed",
@@ -75,16 +82,8 @@ class LLMGateway:
                 "provider": response.provider,
                 "model": response.model,
                 "duration_ms": round(duration_ms, 2),
-                "input_tokens": (
-                    usage.input_tokens
-                    if usage is not None
-                    else None
-                ),
-                "output_tokens": (
-                    usage.output_tokens
-                    if usage is not None
-                    else None
-                ),
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
             },
         )
 
@@ -93,41 +92,86 @@ class LLMGateway:
     def generate_stream(
         self,
         messages: list[ChatMessage],
-        *,
         temperature: float = 0.2,
-        max_tokens: int | None = None,
+        max_tokens: int = 4096,
     ):
+        overall_start = perf_counter()
+
+        provider_name = type(self.provider).__name__
+
         logger.info(
             "LLM streaming request started",
             extra={
-                "provider": self.provider.__class__.__name__,
+                "provider": provider_name,
                 "model": self.model,
             },
         )
 
-        for attempt in range(
-            1,
-            self.retry_policy.max_attempts + 1,
-        ):
+        max_attempts = self.retry_policy.max_attempts
+
+        for attempt in range(1, max_attempts + 1):
+            attempt_start = perf_counter()
             chunks_received = False
+
+            logger.info(
+                "LLM streaming attempt started",
+                extra={
+                    "provider": provider_name,
+                    "model": self.model,
+                    "attempt": attempt,
+                },
+            )
 
             try:
                 stream = self.provider.generate_stream(
-                    messages,
+                    messages=messages,
                     model=self.model,
                     temperature=temperature,
                     max_tokens=max_tokens,
                 )
 
                 for chunk in stream:
-                    chunks_received = True
+                    if not chunks_received:
+                        chunks_received = True
+
+                        ttft_ms = (perf_counter() - attempt_start) * 1000
+
+                        logger.info(
+                            "LLM first token received",
+                            extra={
+                                "provider": provider_name,
+                                "model": self.model,
+                                "attempt": attempt,
+                                "duration_ms": round(ttft_ms, 2),
+                                "ttft_ms": round(ttft_ms, 2),
+                            },
+                        )
+
                     yield chunk
+
+                attempt_duration_ms = (
+                    perf_counter() - attempt_start
+                ) * 1000
+
+                overall_duration_ms = (
+                    perf_counter() - overall_start
+                ) * 1000
 
                 logger.info(
                     "LLM streaming request completed",
                     extra={
-                        "provider": self.provider.__class__.__name__,
+                        "provider": provider_name,
                         "model": self.model,
+                        "attempt": attempt,
+                        "duration_ms": round(
+                            attempt_duration_ms,
+                            2,
+                        ),
+                        "overall_duration_ms": round(
+                            overall_duration_ms,
+                            2,
+                        ),
+                        "chunks_received": chunks_received,
                     },
                 )
 
@@ -138,31 +182,34 @@ class LLMGateway:
                 LLMTimeoutError,
                 LLMProviderError,
             ) as exc:
-                logger.error(
-                    "LLM streaming request failed",
+                attempt_duration_ms = (
+                    perf_counter() - attempt_start
+                ) * 1000
+
+                logger.exception(
+                    "LLM streaming attempt failed",
                     extra={
-                        "provider": self.provider.__class__.__name__,
+                        "provider": provider_name,
                         "model": self.model,
                         "attempt": attempt,
-                        "max_attempts": self.retry_policy.max_attempts,
+                        "duration_ms": round(
+                            attempt_duration_ms,
+                            2,
+                        ),
                         "error_type": type(exc).__name__,
-                        "chunks_received": chunks_received,
                     },
                 )
 
-                # Never restart a stream after sending tokens.
-                if chunks_received:
+                if chunks_received or attempt >= max_attempts:
                     raise
 
-                if attempt >= self.retry_policy.max_attempts:
-                    raise
-
-                logger.warning(
-                    "LLM streaming request retrying",
+                logger.info(
+                    "Retrying LLM streaming request",
                     extra={
-                        "attempt": attempt,
+                        "provider": provider_name,
+                        "model": self.model,
                         "next_attempt": attempt + 1,
                     },
                 )
 
-                self.retry_policy.sleep()
+                self.retry_policy.sleep(attempt)

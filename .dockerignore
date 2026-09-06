@@ -1,28 +1,24 @@
-@"
 .git
 .gitignore
+.github
 
 .env
 .env.*
 !.env.example
 
-backend/.venv
+frontend
+node_modules
+**/node_modules
+
+backend/media
 backend/__pycache__
-backend/*.py[cod]
-
+backend/**/__pycache__
 backend/.pytest_cache
-backend/.mypy_cache
-backend/.ruff_cache
-backend/.coverage
-backend/htmlcov
+backend/.venv
+backend/**/.venv
 
-frontend/node_modules
-frontend/dist
+*.pyc
+*.pyo
 
-media
-staticfiles
-
-*.log
-
-docker-compose.override.yml
-"@ | Set-Content .dockerignore
+.vscode
+.idea

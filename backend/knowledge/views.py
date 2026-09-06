@@ -1,4 +1,5 @@
 from django.shortcuts import get_object_or_404
+from drf_spectacular.utils import extend_schema
 from rest_framework import generics, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -7,7 +8,6 @@ from rest_framework.views import APIView
 from knowledge.models import Document
 from knowledge.serializers import DocumentSerializer
 from knowledge.tasks import process_document_task
-from drf_spectacular.utils import extend_schema
 class DocumentListCreateView(generics.ListCreateAPIView):
     serializer_class = DocumentSerializer
     permission_classes = [IsAuthenticated]

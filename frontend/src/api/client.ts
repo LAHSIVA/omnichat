@@ -1,4 +1,7 @@
-import axios from "axios";
+import axios, {
+  type AxiosError,
+  type InternalAxiosRequestConfig,
+} from "axios";
 
 import {
   getAccessToken,
@@ -14,47 +17,79 @@ const apiClient = axios.create({
   },
 });
 
-apiClient.interceptors.request.use((config) => {
-  const accessToken = getAccessToken();
+apiClient.interceptors.request.use(
+  (config: InternalAxiosRequestConfig) => {
+    const accessToken = getAccessToken();
 
-  if (accessToken) {
-    config.headers.Authorization = `Bearer ${accessToken}`;
-  }
+    if (accessToken) {
+      config.headers.Authorization = `Bearer ${accessToken}`;
+    }
 
-  return config;
-});
+    return config;
+  },
+);
 
 let isRefreshing = false;
 
-let refreshSubscribers: Array<
-  (accessToken: string) => void
-> = [];
+type RefreshSubscriber = {
+  resolve: (accessToken: string) => void;
+  reject: (error: unknown) => void;
+};
+
+let refreshSubscribers: RefreshSubscriber[] = [];
 
 function subscribeToTokenRefresh(
-  callback: (accessToken: string) => void,
+  resolve: (accessToken: string) => void,
+  reject: (error: unknown) => void,
 ): void {
-  refreshSubscribers.push(callback);
+  refreshSubscribers.push({
+    resolve,
+    reject,
+  });
 }
 
 function notifyTokenRefreshed(
   accessToken: string,
 ): void {
-  refreshSubscribers.forEach((callback) => {
-    callback(accessToken);
+  refreshSubscribers.forEach(({ resolve }) => {
+    resolve(accessToken);
   });
 
   refreshSubscribers = [];
 }
 
+function notifyRefreshFailed(error: unknown): void {
+  refreshSubscribers.forEach(({ reject }) => {
+    reject(error);
+  });
+
+  refreshSubscribers = [];
+}
+
+function isRefreshRequest(
+  config?: InternalAxiosRequestConfig,
+): boolean {
+  return Boolean(
+    config?.url?.includes("/auth/token/refresh/"),
+  );
+}
+
 apiClient.interceptors.response.use(
   (response) => response,
 
-  async (error) => {
-    const originalRequest = error.config;
+  async (error: AxiosError) => {
+    const originalRequest =
+      error.config as
+        | (InternalAxiosRequestConfig & {
+            _retry?: boolean;
+          })
+        | undefined;
 
     if (
       error.response?.status !== 401 ||
-      originalRequest?._retry
+      !originalRequest ||
+      originalRequest._retry ||
+      isRefreshRequest(originalRequest)
     ) {
       return Promise.reject(error);
     }
@@ -70,14 +105,17 @@ apiClient.interceptors.response.use(
 
     if (isRefreshing) {
       return new Promise((resolve, reject) => {
-        subscribeToTokenRefresh((accessToken) => {
-          originalRequest.headers.Authorization =
-            `Bearer ${accessToken}`;
+        subscribeToTokenRefresh(
+          (accessToken) => {
+            originalRequest.headers.Authorization =
+              `Bearer ${accessToken}`;
 
-          apiClient(originalRequest)
-            .then(resolve)
-            .catch(reject);
-        });
+            apiClient(originalRequest)
+              .then(resolve)
+              .catch(reject);
+          },
+          reject,
+        );
       });
     }
 
@@ -93,6 +131,12 @@ apiClient.interceptors.response.use(
 
       const newAccessToken = response.data.access;
 
+      if (!newAccessToken) {
+        throw new Error(
+          "Token refresh response did not contain an access token.",
+        );
+      }
+
       setAccessToken(newAccessToken);
 
       notifyTokenRefreshed(newAccessToken);
@@ -104,7 +148,7 @@ apiClient.interceptors.response.use(
     } catch (refreshError) {
       clearTokens();
 
-      refreshSubscribers = [];
+      notifyRefreshFailed(refreshError);
 
       return Promise.reject(refreshError);
     } finally {

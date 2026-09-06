@@ -1,5 +1,9 @@
 import json
-
+from ai.domain.exceptions import (
+    LLMProviderError,
+    LLMRateLimitError,
+    LLMTimeoutError,
+)
 from django.http import StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import (
@@ -22,11 +26,7 @@ from .serializers import (
     MessageSerializer,
 )
 from .title_service import generate_conversation_title
-from ai.domain.exceptions import (
-    LLMProviderError,
-    LLMRateLimitError,
-    LLMTimeoutError,
-)
+
 
 @extend_schema_view(
     retrieve=extend_schema(
@@ -217,6 +217,7 @@ class ConversationMessageStreamView(APIView):
 
         response["Cache-Control"] = "no-cache"
         response["X-Accel-Buffering"] = "no"
+        response["Connection"] = "keep-alive"
 
         return response
 
@@ -248,18 +249,5 @@ class ConversationMessageStreamView(APIView):
                 "The AI service is temporarily unavailable. "
                 "Please try again shortly."
             )
-
-        return "Unable to generate a response. Please try again."
-
-    @staticmethod
-    def get_error_message(exc):
-        if isinstance(exc, LLMRateLimitError):
-            return "The AI service is temporarily rate-limited. Please try again shortly."
-
-        if isinstance(exc, LLMTimeoutError):
-            return "The AI service took too long to respond. Please try again."
-
-        if isinstance(exc, LLMProviderError):
-            return "The AI service is temporarily unavailable. Please try again shortly."
 
         return "Unable to generate a response. Please try again."

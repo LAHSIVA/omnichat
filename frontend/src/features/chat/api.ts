@@ -56,14 +56,43 @@ export async function deleteConversation(
   );
 }
 
+/**
+ * Represents a progress update sent by the backend
+ * while an assistant response is being generated.
+ */
+export interface StreamStatus {
+  stage:
+    | "preparing"
+    | "retrieving"
+    | "retrieved"
+    | "general"
+    | "building_context"
+    | "generating";
+
+  message: string;
+}
+
+/**
+ * Stream an assistant response using Server-Sent Events.
+ *
+ * The backend can send:
+ *
+ * - status → progress information
+ * - token  → assistant response content
+ * - done   → completed response
+ * - error  → streaming error
+ */
 export async function streamMessage(
   conversationId: string,
   content: string,
+  onStatus: (status: StreamStatus) => void,
   onToken: (token: string) => void,
   onComplete: (data: ChatResponse) => void,
   onError: (error: Error) => void,
 ): Promise<void> {
-  const token = sessionStorage.getItem("omnichat_access_token");
+  const token = sessionStorage.getItem(
+    "omnichat_access_token",
+  );
 
   try {
     const response = await fetch(
@@ -72,7 +101,11 @@ export async function streamMessage(
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+          ...(token
+            ? {
+                Authorization: `Bearer ${token}`,
+              }
+            : {}),
         },
         body: JSON.stringify({
           content,
@@ -80,12 +113,22 @@ export async function streamMessage(
       },
     );
 
+    if (response.status === 401) {
+      throw new Error(
+        "Your session has expired. Please sign in again.",
+      );
+    }
+
     if (!response.ok) {
-      throw new Error(`Streaming request failed: ${response.status}`);
+      throw new Error(
+        `Streaming request failed: ${response.status}`,
+      );
     }
 
     if (!response.body) {
-      throw new Error("Streaming response body is unavailable.");
+      throw new Error(
+        "Streaming response body is unavailable.",
+      );
     }
 
     const reader = response.body.getReader();
@@ -100,7 +143,9 @@ export async function streamMessage(
         break;
       }
 
-      buffer += decoder.decode(value, { stream: true });
+      buffer += decoder.decode(value, {
+        stream: true,
+      });
 
       const events = buffer.split("\n\n");
       buffer = events.pop() ?? "";
@@ -108,23 +153,46 @@ export async function streamMessage(
       for (const event of events) {
         const dataLine = event
           .split("\n")
-          .find((line) => line.startsWith("data: "));
+          .find((line) =>
+            line.startsWith("data: "),
+          );
 
         if (!dataLine) {
           continue;
         }
 
-        const data = JSON.parse(dataLine.slice(6));
+        const data = JSON.parse(
+          dataLine.slice(6),
+        );
+
+        if (data.type === "status") {
+          onStatus({
+            stage: data.stage,
+            message: data.message,
+          });
+
+          continue;
+        }
 
         if (data.type === "token") {
           onToken(data.content);
-        } else if (data.type === "done") {
+
+          continue;
+        }
+
+        if (data.type === "done") {
           onComplete({
             message: data.message,
             sources: data.sources ?? [],
           });
-        } else if (data.type === "error") {
-          throw new Error(data.message || "Streaming failed.");
+
+          continue;
+        }
+
+        if (data.type === "error") {
+          throw new Error(
+            data.message || "Streaming failed.",
+          );
         }
       }
     }
@@ -132,7 +200,9 @@ export async function streamMessage(
     onError(
       error instanceof Error
         ? error
-        : new Error("An unexpected streaming error occurred."),
+        : new Error(
+            "An unexpected streaming error occurred.",
+          ),
     );
   }
 }

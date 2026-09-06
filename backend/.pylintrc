@@ -1,0 +1,27 @@
+[MASTER]
+ignore=migrations,tests
+
+[MESSAGES CONTROL]
+disable=
+    missing-module-docstring,
+    missing-class-docstring,
+    missing-function-docstring,
+    too-few-public-methods,
+    too-many-ancestors,
+    no-member,
+    invalid-str-returned,
+    unsubscriptable-object,
+    abstract-method
+
+[FORMAT]
+max-line-length=100
+
+[BASIC]
+good-names=
+    id,
+    pk,
+    db,
+    llm,
+    ai,
+    rag,
+    url
