@@ -9,29 +9,31 @@ https://docs.djangoproject.com/en/5.2/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
+
 from datetime import timedelta
 from pathlib import Path
+
 import environ
 
 
-# Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
 env = environ.Env(
     DEBUG=(bool, False),
 )
 
 environ.Env.read_env(BASE_DIR.parent / ".env")
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = env("DJANGO_SECRET_KEY")
-
-# SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = env("DJANGO_DEBUG")
 
 ALLOWED_HOSTS = []
+
+
+# ---------------------------------------------------------------------------
+# JWT
+# ---------------------------------------------------------------------------
 
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
@@ -41,7 +43,10 @@ SIMPLE_JWT = {
     "AUTH_HEADER_TYPES": ("Bearer",),
 }
 
-# Application definition
+
+# ---------------------------------------------------------------------------
+# Applications
+# ---------------------------------------------------------------------------
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -50,6 +55,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+
     "rest_framework",
     "core",
     "accounts",
@@ -60,6 +66,11 @@ INSTALLED_APPS = [
     "knowledge",
     "corsheaders",
 ]
+
+
+# ---------------------------------------------------------------------------
+# Middleware
+# ---------------------------------------------------------------------------
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -72,7 +83,13 @@ MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
 ]
 
+
 ROOT_URLCONF = "config.urls"
+
+
+# ---------------------------------------------------------------------------
+# Templates
+# ---------------------------------------------------------------------------
 
 TEMPLATES = [
     {
@@ -89,11 +106,13 @@ TEMPLATES = [
     },
 ]
 
+
 WSGI_APPLICATION = "config.wsgi.application"
 
 
+# ---------------------------------------------------------------------------
 # Database
-# https://docs.djangoproject.com/en/5.2/ref/settings/#databases
+# ---------------------------------------------------------------------------
 
 DATABASES = {
     "default": env.db(
@@ -108,28 +127,57 @@ DATABASES = {
     )
 }
 
+# Keep PostgreSQL connections alive between requests.
+#
+# This is important for OmniChat because every chat request performs
+# multiple database operations:
+#
+#   conversation/history lookup
+#       -> document retrieval
+#       -> message persistence
+#       -> source persistence
+#
+# Without persistent connections, Django can repeatedly pay the cost
+# of establishing a PostgreSQL connection.
+DATABASES["default"]["CONN_MAX_AGE"] = 60
+DATABASES["default"]["CONN_HEALTH_CHECKS"] = True
 
+
+# ---------------------------------------------------------------------------
 # Password validation
-# https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
+# ---------------------------------------------------------------------------
 
 AUTH_PASSWORD_VALIDATORS = [
     {
-        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
+        "NAME": (
+            "django.contrib.auth.password_validation."
+            "UserAttributeSimilarityValidator"
+        ),
     },
     {
-        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
+        "NAME": (
+            "django.contrib.auth.password_validation."
+            "MinimumLengthValidator"
+        ),
     },
     {
-        "NAME": "django.contrib.auth.password_validation.CommonPasswordValidator",
+        "NAME": (
+            "django.contrib.auth.password_validation."
+            "CommonPasswordValidator"
+        ),
     },
     {
-        "NAME": "django.contrib.auth.password_validation.NumericPasswordValidator",
+        "NAME": (
+            "django.contrib.auth.password_validation."
+            "NumericPasswordValidator"
+        ),
     },
 ]
 
 
+# ---------------------------------------------------------------------------
 # Internationalization
-# https://docs.djangoproject.com/en/5.2/topics/i18n/
+# ---------------------------------------------------------------------------
 
 LANGUAGE_CODE = "en-us"
 
@@ -140,38 +188,53 @@ USE_I18N = True
 USE_TZ = True
 
 
-# Static files (CSS, JavaScript, Images)
-# https://docs.djangoproject.com/en/5.2/howto/static-files/
+# ---------------------------------------------------------------------------
+# Static / Media
+# ---------------------------------------------------------------------------
 
 STATIC_URL = "static/"
-STATIC_ROOT = BASE_DIR / "staticfiles"
-# Default primary key field type
-# https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
-# User-uploaded files
+STATIC_ROOT = BASE_DIR / "staticfiles"
+
 MEDIA_URL = "media/"
+
 MEDIA_ROOT = BASE_DIR / "media"
+
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+
+# ---------------------------------------------------------------------------
+# Django REST Framework
+# ---------------------------------------------------------------------------
+
 REST_FRAMEWORK = {
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
+
     "DEFAULT_PERMISSION_CLASSES": (
         "rest_framework.permissions.IsAuthenticated",
     ),
-    "EXCEPTION_HANDLER": "core.exceptions.custom_exception_handler",
 }
+
+
+# ---------------------------------------------------------------------------
+# OpenAPI / Swagger
+# ---------------------------------------------------------------------------
 
 SPECTACULAR_SETTINGS = {
     "TITLE": "OmniChat API",
     "DESCRIPTION": "AI Chat and Knowledge Assistant API",
     "VERSION": "1.0.0",
-    "SERVE_INCLUDE_SCHEMA": False,
-    "COMPONENT_SPLIT_REQUEST": True,
 }
+
+
+# ---------------------------------------------------------------------------
+# AI Configuration
+# ---------------------------------------------------------------------------
 
 AI_PROVIDER = env(
     "AI_PROVIDER",
@@ -188,15 +251,24 @@ AI_CONTEXT_MAX_TOKENS = env(
     default=4000,
 )
 
+# Reduced from 4096 to 512.
+#
+# OmniChat is a conversational application and does not normally need
+# thousands of output tokens for a single response.
 AI_MAX_OUTPUT_TOKENS = env(
     "AI_MAX_OUTPUT_TOKENS",
-    default=4096,
+    default=1024,
 )
 
 AI_KNOWLEDGE_TOP_K = env(
     "AI_KNOWLEDGE_TOP_K",
     default=5,
 )
+
+
+# ---------------------------------------------------------------------------
+# Ollama Embeddings
+# ---------------------------------------------------------------------------
 
 OLLAMA_BASE_URL = env(
     "OLLAMA_BASE_URL",
@@ -213,6 +285,11 @@ OLLAMA_EMBEDDING_DIMENSIONS = env(
     default=1024,
 )
 
+
+# ---------------------------------------------------------------------------
+# FreeLLMAPI
+# ---------------------------------------------------------------------------
+
 FREELLMAPI_BASE_URL = env(
     "FREELLMAPI_BASE_URL",
     default="http://localhost:3001/v1",
@@ -223,37 +300,48 @@ FREELLMAPI_API_KEY = env(
     default="",
 )
 
+
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
+
     "formatters": {
         "verbose": {
-            "()": "core.logging.SafeExtraFormatter",
             "format": (
-                "{asctime} {levelname} "
-                "{name} {message} "
-                "provider={provider} "
-                "model={model} "
-                "duration_ms={duration_ms} "
-                "input_tokens={input_tokens} "
-                "output_tokens={output_tokens}"
+                "{asctime} {levelname} {name} {message}"
             ),
             "style": "{",
         },
     },
+
     "handlers": {
         "console": {
             "class": "logging.StreamHandler",
             "formatter": "verbose",
         },
     },
+
     "loggers": {
-        "ai": {
+        "knowledge.embeddings": {
             "handlers": ["console"],
             "level": "INFO",
             "propagate": False,
         },
-        "knowledge": {
+        "knowledge.search_service": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "ai.gateway": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "ai.providers.freellmapi": {
             "handlers": ["console"],
             "level": "INFO",
             "propagate": False,
@@ -261,10 +349,25 @@ LOGGING = {
     },
 }
 
+
+# ---------------------------------------------------------------------------
+# Knowledge / Documents
+# ---------------------------------------------------------------------------
+
 KNOWLEDGE_MAX_FILE_SIZE = env(
     "KNOWLEDGE_MAX_FILE_SIZE",
     default=10 * 1024 * 1024,
 )
+
+KNOWLEDGE_SEARCH_MAX_DISTANCE = env(
+    "KNOWLEDGE_SEARCH_MAX_DISTANCE",
+    default=0.50,
+)
+
+
+# ---------------------------------------------------------------------------
+# Celery
+# ---------------------------------------------------------------------------
 
 CELERY_BROKER_URL = env(
     "CELERY_BROKER_URL",
@@ -276,16 +379,16 @@ CELERY_RESULT_BACKEND = env(
     default="redis://127.0.0.1:6379/0",
 )
 
-KNOWLEDGE_SEARCH_MAX_DISTANCE = env(
-    "KNOWLEDGE_SEARCH_MAX_DISTANCE",
-    default=0.50,
-)
-
 CELERY_TASK_TRACK_STARTED = True
 
 CELERY_TASK_TIME_LIMIT = 30 * 60
 
 CELERY_TASK_SOFT_TIME_LIMIT = 25 * 60
+
+
+# ---------------------------------------------------------------------------
+# CORS
+# ---------------------------------------------------------------------------
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",

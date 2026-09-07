@@ -13,6 +13,7 @@ import {
 
 interface ChatInputProps {
   conversationId: string;
+  model?: string;
   onStreamStart: () => void;
   onStatus: (status: StreamStatus) => void;
   onToken: (token: string) => void;
@@ -22,6 +23,7 @@ interface ChatInputProps {
 
 function ChatInput({
   conversationId,
+  model,
   onStreamStart,
   onStatus,
   onToken,
@@ -120,6 +122,7 @@ function ChatInput({
           textareaRef.current?.focus();
         }, 0);
       },
+      model,
     );
   }
 

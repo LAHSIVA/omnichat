@@ -1090,3 +1090,25 @@ def test_chat_stream_rag_mode(
     )
 
     assert assistant.content == "Fake streaming response"
+
+def test_orchestrator_passes_selected_model_to_gateway_factory(monkeypatch):
+    class FakeGateway:
+        pass
+
+    captured = {}
+
+    def fake_create_llm_gateway(model=None):
+        captured["model"] = model
+        return FakeGateway()
+
+    monkeypatch.setattr(
+        "ai.orchestrator.create_llm_gateway",
+        fake_create_llm_gateway,
+    )
+
+    orchestrator = ChatOrchestrator(
+        model="gemini-3.6-flash",
+    )
+
+    assert captured["model"] == "gemini-3.6-flash"
+    assert isinstance(orchestrator.gateway, FakeGateway)

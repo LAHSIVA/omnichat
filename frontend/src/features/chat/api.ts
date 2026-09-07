@@ -89,6 +89,7 @@ export async function streamMessage(
   onToken: (token: string) => void,
   onComplete: (data: ChatResponse) => void,
   onError: (error: Error) => void,
+  model?: string,
 ): Promise<void> {
   const token = sessionStorage.getItem(
     "omnichat_access_token",
@@ -109,6 +110,7 @@ export async function streamMessage(
         },
         body: JSON.stringify({
           content,
+          ...(model ? { model } : {}),
         }),
       },
     );

@@ -4,10 +4,12 @@ from ai.gateway import LLMGateway
 from ai.providers.factory import create_llm_provider
 
 
-def create_llm_gateway() -> LLMGateway:
+def create_llm_gateway(model: str | None = None) -> LLMGateway:
+    selected_model = model or settings.AI_MODEL
+
     provider = create_llm_provider()
 
     return LLMGateway(
         provider=provider,
-        model=settings.AI_MODEL,
+        model=selected_model,
     )

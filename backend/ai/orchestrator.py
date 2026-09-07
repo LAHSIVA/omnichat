@@ -37,8 +37,9 @@ class ChatOrchestrator:
         context_assembler=None,
         knowledge_search=None,
         retrieval_service=None,
+        model=None,
     ):
-        self.gateway = gateway or create_llm_gateway()
+        self.gateway = gateway or create_llm_gateway(model=model)
 
         self.context_builder = (
             context_builder

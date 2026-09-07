@@ -1,3 +1,7 @@
+import logging
+from collections.abc import Iterator
+from time import perf_counter
+
 from openai import (
     APIConnectionError,
     APIError,
@@ -15,9 +19,17 @@ from ai.domain.exceptions import (
 )
 from ai.domain.types import ChatMessage, LLMResponse, TokenUsage
 from ai.providers.base import LLMProvider
-from collections.abc import Iterator
+
+logger = logging.getLogger(__name__)
+
+
 class FreeLLMAPIProvider(LLMProvider):
     """OpenAI-compatible provider backed by FreeLLMAPI."""
+
+    CONNECT_TIMEOUT = 10.0
+    READ_TIMEOUT = 90.0
+    WRITE_TIMEOUT = 10.0
+    POOL_TIMEOUT = 10.0
 
     def __init__(
         self,
@@ -28,7 +40,55 @@ class FreeLLMAPIProvider(LLMProvider):
         self.client = OpenAI(
             api_key=api_key,
             base_url=base_url,
+            timeout=(
+                self.CONNECT_TIMEOUT,
+                self.READ_TIMEOUT,
+                self.WRITE_TIMEOUT,
+                self.POOL_TIMEOUT,
+            ),
+            max_retries=0,
         )
+
+    @staticmethod
+    def _build_messages(
+        messages: list[ChatMessage],
+    ) -> list[dict[str, str]]:
+        return [
+            {
+                "role": message.role,
+                "content": message.content,
+            }
+            for message in messages
+        ]
+    @staticmethod
+    def _get_message_stats(
+        messages: list[ChatMessage],
+    ) -> tuple[int, int]:
+        """Return message count and total character count."""
+        return (
+            len(messages),
+            sum(len(message.content) for message in messages),
+        )
+    @staticmethod
+    def _build_request_kwargs(
+        *,
+        model: str,
+        messages: list[ChatMessage],
+        temperature: float,
+        max_tokens: int | None,
+        stream: bool = False,
+    ) -> dict:
+        request_kwargs = {
+            "model": model,
+            "messages": FreeLLMAPIProvider._build_messages(messages),
+            "temperature": temperature,
+            "stream": stream,
+        }
+
+        if max_tokens is not None:
+            request_kwargs["max_tokens"] = max_tokens
+
+        return request_kwargs
 
     def generate(
         self,
@@ -38,22 +98,15 @@ class FreeLLMAPIProvider(LLMProvider):
         temperature: float = 0.2,
         max_tokens: int | None = None,
     ) -> LLMResponse:
-        request_messages = [
-            {
-                "role": message.role,
-                "content": message.content,
-            }
-            for message in messages
-        ]
+        request_kwargs = self._build_request_kwargs(
+            model=model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+        message_count, character_count = self._get_message_stats(messages)
 
-        request_kwargs = {
-            "model": model,
-            "messages": request_messages,
-            "temperature": temperature,
-        }
-
-        if max_tokens is not None:
-            request_kwargs["max_tokens"] = max_tokens
+        start_time = perf_counter()
 
         try:
             response = self.client.chat.completions.create(
@@ -80,6 +133,8 @@ class FreeLLMAPIProvider(LLMProvider):
                 "LLM provider request failed"
             ) from exc
 
+        duration_ms = (perf_counter() - start_time) * 1000
+
         usage = None
 
         if response.usage is not None:
@@ -88,8 +143,18 @@ class FreeLLMAPIProvider(LLMProvider):
                 output_tokens=response.usage.completion_tokens,
             )
 
+        content = response.choices[0].message.content or ""
+
+        logger.info(
+            "FreeLLMAPI generation request completed: "
+            "model=%s message_count=%d character_count=%d",
+            model,
+            message_count,
+            character_count,
+        )
+
         return LLMResponse(
-            content=response.choices[0].message.content or "",
+            content=content,
             model=response.model,
             provider="freellmapi",
             usage=usage,
@@ -104,24 +169,47 @@ class FreeLLMAPIProvider(LLMProvider):
         temperature: float = 0.2,
         max_tokens: int | None = None,
     ) -> Iterator[str]:
-        request_messages = [
-            {"role": message.role, "content": message.content}
-            for message in messages
-        ]
+        request_kwargs = self._build_request_kwargs(
+            model=model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            stream=True,
+        )
 
-        request_kwargs = {
-            "model": model,
-            "messages": request_messages,
-            "temperature": temperature,
-            "stream": True,
-        }
+        message_count, character_count = self._get_message_stats(messages)
 
-        if max_tokens is not None:
-            request_kwargs["max_tokens"] = max_tokens
+        start_time = perf_counter()
+        chunks_received = 0
+
+        logger.info(
+            "FreeLLMAPI generation request started: "
+            "model=%s message_count=%d character_count=%d",
+            model,
+            message_count,
+            character_count,
+        )
+
+        logger.info(
+            "FreeLLMAPI request details: roles=%s content_lengths=%s",
+            [message["role"] for message in request_kwargs["messages"]],
+            [len(message["content"]) for message in request_kwargs["messages"]],
+        )
 
         try:
             response = self.client.chat.completions.create(
-                **request_kwargs
+                **request_kwargs,
+            )
+
+            logger.info(
+                "FreeLLMAPI streaming connection established",
+                extra={
+                    "model": model,
+                    "duration_ms": round(
+                        (perf_counter() - start_time) * 1000,
+                        2,
+                    ),
+                },
             )
 
             for chunk in response:
@@ -130,8 +218,24 @@ class FreeLLMAPIProvider(LLMProvider):
 
                 content = chunk.choices[0].delta.content
 
-                if content:
-                    yield content
+                if not content:
+                    continue
+
+                chunks_received += 1
+
+                if chunks_received == 1:
+                    logger.info(
+                        "FreeLLMAPI first stream chunk received",
+                        extra={
+                            "model": model,
+                            "duration_ms": round(
+                                (perf_counter() - start_time) * 1000,
+                                2,
+                            ),
+                        },
+                    )
+
+                yield content
 
         except AuthenticationError as exc:
             raise LLMAuthenticationError(
@@ -153,3 +257,15 @@ class FreeLLMAPIProvider(LLMProvider):
             raise LLMProviderError(
                 "LLM provider request failed"
             ) from exc
+        finally:
+            logger.info(
+                "FreeLLMAPI streaming request finished",
+                extra={
+                    "model": model,
+                    "duration_ms": round(
+                        (perf_counter() - start_time) * 1000,
+                        2,
+                    ),
+                    "chunks_received": chunks_received,
+                },
+            )

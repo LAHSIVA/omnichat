@@ -45,14 +45,32 @@ class LLMGateway:
         )
 
         try:
-            response = self.retry_policy.execute(
-                lambda: self.provider.generate(
+            attempts = 0
+
+            def operation():
+                nonlocal attempts
+                attempts += 1
+
+                if attempts > 1:
+                    logger.info(
+                        "LLM request retrying",
+                        extra={
+                            "provider": provider_name,
+                            "model": self.model,
+                            "attempt": attempts,
+                            "next_attempt": attempts + 1,
+                            "max_attempts": self.retry_policy.max_attempts,
+                        },
+                    )
+
+                return self.provider.generate(
                     messages=messages,
                     model=self.model,
                     temperature=temperature,
                     max_tokens=max_tokens,
                 )
-            )
+
+            response = self.retry_policy.execute(operation)
         except Exception as exc:
             duration_ms = (perf_counter() - start_time) * 1000
 
@@ -177,27 +195,31 @@ class LLMGateway:
 
                 return
 
-            except (
-                LLMRateLimitError,
-                LLMTimeoutError,
-                LLMProviderError,
-            ) as exc:
-                attempt_duration_ms = (
-                    perf_counter() - attempt_start
-                ) * 1000
+            except LLMRateLimitError:
+                logger.warning(
+                    "LLM streaming request rate limited; "
+                    "retry disabled",
+                    extra={
+                        "provider": provider_name,
+                        "model": self.model,
+                        "attempt": attempt,
+                        "max_attempts": max_attempts,
+                    },
+                    exc_info=True,
+                )
+                raise
 
-                logger.exception(
+            except (LLMTimeoutError, LLMProviderError) as exc:
+                logger.error(
                     "LLM streaming attempt failed",
                     extra={
                         "provider": provider_name,
                         "model": self.model,
                         "attempt": attempt,
-                        "duration_ms": round(
-                            attempt_duration_ms,
-                            2,
-                        ),
+                        "max_attempts": max_attempts,
                         "error_type": type(exc).__name__,
                     },
+                    exc_info=True,
                 )
 
                 if chunks_received or attempt >= max_attempts:
@@ -208,8 +230,9 @@ class LLMGateway:
                     extra={
                         "provider": provider_name,
                         "model": self.model,
+                        "attempt": attempt,
                         "next_attempt": attempt + 1,
                     },
                 )
 
-                self.retry_policy.sleep(attempt)
+                self.retry_policy.sleep()

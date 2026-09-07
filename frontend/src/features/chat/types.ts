@@ -23,6 +23,7 @@ export interface Message {
 
 export interface SendMessageRequest {
   content: string;
+  model?: string;
 }
 
 export interface ChatResponse {

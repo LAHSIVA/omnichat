@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
 from .models import Conversation, Message, MessageSource
-
+from ai.models import get_model
 
 class ConversationSerializer(serializers.ModelSerializer):
     class Meta:
@@ -91,3 +91,18 @@ class MessageCreateSerializer(serializers.Serializer):
         min_length=1,
         trim_whitespace=True,
     )
+
+    model = serializers.CharField(
+        required=False,
+        allow_blank=False,
+    )
+
+    def validate_model(self, value):
+        try:
+            get_model(value)
+        except ValueError as exc:
+            raise serializers.ValidationError(
+                "Unsupported model."
+            ) from exc
+
+        return value

@@ -7,6 +7,7 @@ from ai.orchestrator import ChatOrchestrator
 from conversations.models import Conversation, Message
 from ai.domain.exceptions import LLMProviderError
 from ai.domain.exceptions import ContextLimitError
+from conversations.serializers import MessageCreateSerializer
 User = get_user_model()
 
 
@@ -73,9 +74,10 @@ def fake_orchestrator(monkeypatch):
 
     monkeypatch.setattr(
         "conversations.views.ChatOrchestrator",
-        lambda: ChatOrchestrator(
+        lambda model=None: ChatOrchestrator(
             gateway=FakeGateway(),
             knowledge_search=fake_knowledge_search,
+            model=model,
         ),
     )
 
@@ -311,6 +313,8 @@ def test_llm_provider_error_returns_safe_api_response(
     monkeypatch,
 ):
     class FailingOrchestrator:
+        def __init__(self, model=None):
+            pass
         def chat(self, *, conversation, content):
             raise LLMProviderError(
                 "FreeLLMAPI connection failed internally"
@@ -348,6 +352,8 @@ def test_llm_timeout_returns_gateway_timeout(
     from ai.domain.exceptions import LLMTimeoutError
 
     class FailingOrchestrator:
+        def __init__(self, model=None):
+            pass
         def chat(self, *, conversation, content):
             raise LLMTimeoutError(
                 "Provider timed out after 30 seconds"
@@ -381,6 +387,8 @@ def test_llm_rate_limit_returns_429(
     from ai.domain.exceptions import LLMRateLimitError
 
     class FailingOrchestrator:
+        def __init__(self, model=None):
+            pass
         def chat(self, *, conversation, content):
             raise LLMRateLimitError(
                 "Provider rate limit exceeded"
@@ -412,6 +420,8 @@ def test_llm_failure_preserves_user_message_and_creates_no_assistant(
     monkeypatch,
 ):
     class FailingOrchestrator:
+        def __init__(self, model=None):
+            pass
         def chat(self, *, conversation, content):
             Message.objects.create(
                 conversation=conversation,
@@ -456,6 +466,8 @@ def test_oversized_message_returns_bad_request(
     monkeypatch,
 ):
     class FailingOrchestrator:
+        def __init__(self, model=None):
+            pass
         def chat(self, *, conversation, content):
             raise ContextLimitError(
                 "latest message exceeds the context limit"
@@ -493,6 +505,8 @@ def test_authenticated_user_can_create_message_with_sources(
     from ai.domain.types import RetrievedChunk
 
     class SourceOrchestrator:
+        def __init__(self, model=None):
+            pass
         def chat(self, *, conversation, content):
             user_message = Message.objects.create(
                 conversation=conversation,
@@ -628,3 +642,78 @@ def test_authenticated_user_can_list_messages_with_persisted_sources(
     )
     assert source["chunk_index"] == 0
     assert source["distance"] == 0.12
+
+def test_message_create_serializer_accepts_valid_model():
+    serializer = MessageCreateSerializer(
+        data={
+            "content": "Explain RAG",
+            "model": "gemini-3.6-flash",
+        }
+    )
+
+    assert serializer.is_valid(), serializer.errors
+    assert serializer.validated_data["model"] == "gemini-3.6-flash"
+
+
+def test_message_create_serializer_allows_missing_model():
+    serializer = MessageCreateSerializer(
+        data={
+            "content": "Hello",
+        }
+    )
+
+    assert serializer.is_valid(), serializer.errors
+    assert "model" not in serializer.validated_data
+
+
+def test_message_create_serializer_rejects_unsupported_model():
+    serializer = MessageCreateSerializer(
+        data={
+            "content": "Hello",
+            "model": "not-a-real-model",
+        }
+    )
+
+    assert not serializer.is_valid()
+    assert serializer.errors["model"][0] == "Unsupported model."
+
+
+@pytest.mark.django_db
+def test_create_message_passes_selected_model_to_orchestrator(
+    authenticated_client,
+    conversation,
+    monkeypatch,
+):
+    captured = {}
+
+    class FakeResult:
+        assistant_message = Message(
+            conversation=conversation,
+            role=Message.Role.ASSISTANT,
+            content="Fake AI response",
+        )
+        sources = []
+
+    class FakeOrchestrator:
+        def __init__(self, model=None):
+            captured["model"] = model
+
+        def chat(self, *, conversation, content):
+            return FakeResult()
+
+    monkeypatch.setattr(
+        "conversations.views.ChatOrchestrator",
+        FakeOrchestrator,
+    )
+
+    response = authenticated_client.post(
+        f"/api/conversations/{conversation.id}/messages/",
+        {
+            "content": "Explain RAG",
+            "model": "gemini-3.6-flash",
+        },
+        format="json",
+    )
+
+    assert response.status_code == 201
+    assert captured["model"] == "gemini-3.6-flash"

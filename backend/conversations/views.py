@@ -1,9 +1,12 @@
 import json
+
 from ai.domain.exceptions import (
+    ContextLimitError,
     LLMProviderError,
     LLMRateLimitError,
     LLMTimeoutError,
 )
+from ai.orchestrator import ChatOrchestrator
 from django.http import StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import (
@@ -15,8 +18,6 @@ from rest_framework import status, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
-
-from ai.orchestrator import ChatOrchestrator
 
 from .models import Conversation
 from .serializers import (
@@ -123,9 +124,10 @@ class ConversationMessageListCreateView(APIView):
 
         serializer.is_valid(raise_exception=True)
 
-        orchestrator = ChatOrchestrator()
-
         content = serializer.validated_data["content"]
+        model = serializer.validated_data.get("model")
+
+        orchestrator = ChatOrchestrator(model=model)
 
         if not conversation.title:
             conversation.title = generate_conversation_title(content)
@@ -133,10 +135,43 @@ class ConversationMessageListCreateView(APIView):
                 update_fields=["title", "updated_at"]
             )
 
-        result = orchestrator.chat(
-            conversation=conversation,
-            content=content,
-        )
+        try:
+            result = orchestrator.chat(
+                conversation=conversation,
+                content=content,
+            )
+
+        except LLMRateLimitError as exc:
+            return Response(
+                {
+                    "detail": self.get_error_message(exc),
+                },
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
+        except LLMTimeoutError as exc:
+            return Response(
+                {
+                    "detail": self.get_error_message(exc),
+                },
+                status=status.HTTP_504_GATEWAY_TIMEOUT,
+            )
+
+        except ContextLimitError as exc:
+            return Response(
+                {
+                    "detail": self.get_error_message(exc),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        except LLMProviderError as exc:
+            return Response(
+                {
+                    "detail": self.get_error_message(exc),
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
         response_data = {
             "message": MessageSerializer(
@@ -149,6 +184,25 @@ class ConversationMessageListCreateView(APIView):
             ChatResponseSerializer(response_data).data,
             status=status.HTTP_201_CREATED,
         )
+
+    @staticmethod
+    def get_error_message(exc: Exception) -> str:
+        if isinstance(exc, LLMRateLimitError):
+            return "The AI service is temporarily rate limited."
+
+        if isinstance(exc, LLMTimeoutError):
+            return "The AI service timed out."
+
+        if isinstance(exc, ContextLimitError):
+            return (
+                "The message is too large for the "
+                "configured context limit."
+            )
+
+        if isinstance(exc, LLMProviderError):
+            return "The AI service is temporarily unavailable."
+
+        return "An unexpected error occurred. Please try again."
 
 
 class ConversationMessageStreamView(APIView):
@@ -177,6 +231,7 @@ class ConversationMessageStreamView(APIView):
         serializer.is_valid(raise_exception=True)
 
         content = serializer.validated_data["content"]
+        model = serializer.validated_data.get("model")
 
         if not conversation.title:
             conversation.title = generate_conversation_title(content)
@@ -185,7 +240,7 @@ class ConversationMessageStreamView(APIView):
             )
 
         def event_stream():
-            orchestrator = ChatOrchestrator()
+            orchestrator = ChatOrchestrator(model=model)
 
             try:
                 for event in orchestrator.chat_stream(
@@ -200,7 +255,10 @@ class ConversationMessageStreamView(APIView):
                         if key != "type"
                     }
 
-                    yield self.format_event(event_type, event_data)
+                    yield self.format_event(
+                        event_type,
+                        event_data,
+                    )
 
             except Exception as exc:
                 yield self.format_event(
@@ -231,23 +289,20 @@ class ConversationMessageStreamView(APIView):
         return f"data: {json.dumps(payload, default=str)}\n\n"
 
     @staticmethod
-    def get_error_message(exc):
+    def get_error_message(exc: Exception) -> str:
         if isinstance(exc, LLMRateLimitError):
-            return (
-                "The AI service is temporarily rate-limited. "
-                "Please try again shortly."
-            )
+            return "The AI service is temporarily rate limited."
 
         if isinstance(exc, LLMTimeoutError):
+            return "The AI service timed out."
+
+        if isinstance(exc, ContextLimitError):
             return (
-                "The AI service took too long to respond. "
-                "Please try again."
+                "The message is too large for the "
+                "configured context limit."
             )
 
         if isinstance(exc, LLMProviderError):
-            return (
-                "The AI service is temporarily unavailable. "
-                "Please try again shortly."
-            )
+            return "The AI service is temporarily unavailable."
 
-        return "Unable to generate a response. Please try again."
+        return "An unexpected error occurred. Please try again."

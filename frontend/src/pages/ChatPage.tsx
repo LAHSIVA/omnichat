@@ -15,6 +15,8 @@ const SELECTED_CONVERSATION_KEY =
 function ChatPage() {
   const queryClient = useQueryClient();
 
+  const [selectedModel, setSelectedModel] = useState("auto");
+
   const [selectedConversationId, setSelectedConversationId] =
     useState<string | null>(() =>
       localStorage.getItem(
@@ -258,6 +260,47 @@ function ChatPage() {
 
           {/* Right-side workspace indicators */}
           <div className="flex shrink-0 items-center gap-2">
+            <select
+              value={selectedModel}
+              onChange={(event) =>
+                setSelectedModel(event.target.value)
+              }
+              disabled={isStreaming}
+              aria-label="Select AI model"
+              className="
+                rounded-lg
+                border
+                border-slate-200
+                bg-white
+                px-2.5
+                py-1.5
+                text-xs
+                font-medium
+                text-slate-700
+                outline-none
+                transition
+                hover:border-slate-300
+                focus:border-blue-300
+                focus:ring-4
+                focus:ring-blue-500/10
+                disabled:cursor-not-allowed
+                disabled:opacity-60
+              "
+            >
+              <option value="auto">Auto</option>
+              <option value="gemini-3.5-flash-lite">
+                Fast
+              </option>
+              <option value="gemini-3.6-flash">
+                Balanced
+              </option>
+              <option value="claude-sonnet-4-5">
+                Quality
+              </option>
+              <option value="fusion">
+                Maximum
+              </option>
+            </select>
             {isStreaming && (
               <div className="hidden items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1.5 sm:flex">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500" />
@@ -455,6 +498,7 @@ function ChatPage() {
                 conversationId={
                   selectedConversationId
                 }
+                model={selectedModel}
                 onStreamStart={
                   handleStreamStart
                 }
