@@ -29,9 +29,10 @@ class ChatResult:
 
 class ChatOrchestrator:
     """Coordinates conversational chat and document-grounded RAG."""
-
-    def __init__(
+    # Dependency injection keeps the orchestrator easy to test and compose.
+    def __init__( # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
+        *,
         gateway=None,
         context_builder=None,
         context_assembler=None,

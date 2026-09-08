@@ -106,8 +106,8 @@ class LLMGateway:
         )
 
         return response
-
-    def generate_stream(
+    # Streaming retries and telemetry intentionally keep this state together.
+    def generate_stream( # pylint: disable=too-many-locals
         self,
         messages: list[ChatMessage],
         temperature: float = 0.2,

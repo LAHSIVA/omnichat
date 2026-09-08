@@ -1,12 +1,5 @@
 import json
 
-from ai.domain.exceptions import (
-    ContextLimitError,
-    LLMProviderError,
-    LLMRateLimitError,
-    LLMTimeoutError,
-)
-from ai.orchestrator import ChatOrchestrator
 from django.http import StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import (
@@ -18,6 +11,14 @@ from rest_framework import status, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
+from ai.domain.exceptions import (
+    ContextLimitError,
+    LLMProviderError,
+    LLMRateLimitError,
+    LLMTimeoutError,
+)
+from ai.orchestrator import ChatOrchestrator
 
 from .models import Conversation
 from .serializers import (
@@ -260,7 +261,7 @@ class ConversationMessageStreamView(APIView):
                         event_data,
                     )
 
-            except Exception as exc:
+            except Exception as exc: # pylint: disable=broad-exception-caught
                 yield self.format_event(
                     "error",
                     {

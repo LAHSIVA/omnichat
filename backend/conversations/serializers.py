@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
-from .models import Conversation, Message, MessageSource
 from ai.models import get_model
+from .models import Conversation, Message, MessageSource
 
 class ConversationSerializer(serializers.ModelSerializer):
     class Meta:

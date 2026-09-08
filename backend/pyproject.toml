@@ -25,16 +25,9 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "pylint>=4.0.8",
     "pytest>=9.1.1",
     "pytest-django>=4.14.0",
-]
-
-[tool.pytest.ini_options]
-DJANGO_SETTINGS_MODULE = "config.settings"
-python_files = ["tests.py", "test_*.py", "*_tests.py"]
-cache_dir = "/tmp/omnichat-pytest-cache"
-markers = [
-    "integration: tests requiring external services such as Ollama",
 ]
 
 
