@@ -38,3 +38,14 @@ def test_chunk_above_threshold_is_not_relevant():
 def test_invalid_threshold_is_rejected():
     with pytest.raises(ValueError):
         RelevanceEvaluator(max_distance=0)
+
+
+def test_relevance_is_based_on_best_chunk():
+    evaluator = RelevanceEvaluator(max_distance=0.50)
+
+    chunks = [
+        FakeChunk(distance=0.60),
+        FakeChunk(distance=0.20),
+    ]
+
+    assert evaluator.is_relevant(chunks) is False
