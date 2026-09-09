@@ -1,1 +1,0 @@
-Machine learning is useful for predictive maintenance and anomaly detection.
