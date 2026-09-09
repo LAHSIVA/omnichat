@@ -1,6 +1,7 @@
 import logging
 from collections.abc import Iterator
 from time import perf_counter
+from django.conf import settings
 
 from openai import (
     APIConnectionError,
@@ -27,7 +28,6 @@ class FreeLLMAPIProvider(LLMProvider):
     """OpenAI-compatible provider backed by FreeLLMAPI."""
 
     CONNECT_TIMEOUT = 10.0
-    READ_TIMEOUT = 90.0
     WRITE_TIMEOUT = 10.0
     POOL_TIMEOUT = 10.0
 
@@ -42,7 +42,7 @@ class FreeLLMAPIProvider(LLMProvider):
             base_url=base_url,
             timeout=(
                 self.CONNECT_TIMEOUT,
-                self.READ_TIMEOUT,
+                settings.FREELLMAPI_READ_TIMEOUT,
                 self.WRITE_TIMEOUT,
                 self.POOL_TIMEOUT,
             ),
@@ -106,8 +106,6 @@ class FreeLLMAPIProvider(LLMProvider):
         )
         message_count, character_count = self._get_message_stats(messages)
 
-        start_time = perf_counter()
-
         try:
             response = self.client.chat.completions.create(
                 **request_kwargs,
@@ -132,8 +130,6 @@ class FreeLLMAPIProvider(LLMProvider):
             raise LLMProviderError(
                 "LLM provider request failed"
             ) from exc
-
-        duration_ms = (perf_counter() - start_time) * 1000
 
         usage = None
 

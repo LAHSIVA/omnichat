@@ -99,9 +99,7 @@ export function AuthProvider({
       tokens.refresh,
     );
 
-    const currentUser = await getCurrentUser();
-
-    setUser(currentUser);
+    setUser(tokens.user);
   }
 
   async function logout(): Promise<void> {

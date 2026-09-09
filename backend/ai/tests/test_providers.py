@@ -256,3 +256,34 @@ def test_fake_provider_streams_response():
     )
 
     assert "".join(chunks) == "This is a fake AI response."
+
+
+def test_freellmapi_uses_configured_read_timeout(monkeypatch):
+    captured_kwargs = {}
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            captured_kwargs.update(kwargs)
+
+    monkeypatch.setattr(
+        "ai.providers.freellmapi.OpenAI",
+        FakeOpenAI,
+    )
+
+    monkeypatch.setattr(
+        "ai.providers.freellmapi.settings.FREELLMAPI_READ_TIMEOUT",
+        25.0,
+    )
+
+    FreeLLMAPIProvider(
+        api_key="test-api-key",
+        base_url="http://test-server/v1",
+    )
+
+    assert captured_kwargs["timeout"] == (
+        10.0,
+        25.0,
+        10.0,
+        10.0,
+    )
+    assert captured_kwargs["max_retries"] == 0

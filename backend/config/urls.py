@@ -19,9 +19,9 @@ from django.contrib import admin
 from django.urls import include, path
 from rest_framework_simplejwt.views import (
     TokenBlacklistView,
-    TokenObtainPairView,
     TokenRefreshView,
 )
+from accounts.authentication import CustomTokenObtainPairView
 from drf_spectacular.views import (
     SpectacularAPIView,
     SpectacularRedocView,
@@ -36,7 +36,7 @@ urlpatterns = [
 
     path(
         "api/auth/token/",
-        TokenObtainPairView.as_view(),
+        CustomTokenObtainPairView.as_view(),
         name="token_obtain_pair",
     ),
 

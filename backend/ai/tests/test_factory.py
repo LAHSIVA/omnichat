@@ -7,7 +7,6 @@ from ai.providers.factory import create_llm_provider
 from ai.providers.fake import FakeLLMProvider
 from unittest.mock import patch
 
-from ai.factory import create_llm_gateway
 
 @override_settings(AI_PROVIDER="fake")
 def test_factory_creates_fake_provider():
@@ -34,6 +33,7 @@ def test_factory_creates_configured_gateway():
 
     assert isinstance(gateway, LLMGateway)
     assert gateway.model == "test-model"
+    assert gateway.enable_fallback is True
     assert isinstance(gateway.provider, FakeLLMProvider)
 
 

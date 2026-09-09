@@ -1,9 +1,7 @@
 import pytest
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
-from rest_framework_simplejwt.token_blacklist.models import (
-    BlacklistedToken,
-)
+
 
 User = get_user_model()
 
@@ -41,6 +39,12 @@ def test_user_can_login(user):
 
     assert data["access"]
     assert data["refresh"]
+
+    assert data["user"] == {
+        "id": user.id,
+        "username": "authuser",
+        "email": "auth@example.com",
+    }
 
 
 @pytest.mark.django_db

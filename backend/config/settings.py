@@ -300,6 +300,10 @@ FREELLMAPI_API_KEY = env(
     default="",
 )
 
+FREELLMAPI_READ_TIMEOUT = env.float(
+    "FREELLMAPI_READ_TIMEOUT",
+    default=25.0,
+)
 
 # ---------------------------------------------------------------------------
 # Logging
