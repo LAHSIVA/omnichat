@@ -288,6 +288,30 @@ OLLAMA_EMBEDDING_DIMENSIONS = env(
     default=1024,
 )
 
+EMBEDDING_PROVIDER = env(
+    "EMBEDDING_PROVIDER",
+    default="ollama",
+)
+
+HF_TOKEN = env(
+    "HF_TOKEN",
+    default="",
+)
+
+HF_EMBEDDING_BASE_URL = env(
+    "HF_EMBEDDING_BASE_URL",
+    default="https://router.huggingface.co/hf-inference/models",
+)
+
+HF_EMBEDDING_MODEL = env(
+    "HF_EMBEDDING_MODEL",
+    default="Qwen/Qwen3-Embedding-0.6B",
+)
+
+HF_EMBEDDING_DIMENSIONS = env.int(
+    "HF_EMBEDDING_DIMENSIONS",
+    default=1024,
+)
 
 # ---------------------------------------------------------------------------
 # FreeLLMAPI

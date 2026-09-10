@@ -1,7 +1,7 @@
 from django.db import transaction
 
 from knowledge.chunking_service import DocumentChunkingService
-from knowledge.embeddings import OllamaEmbeddingProvider
+from knowledge.embedding_factory import create_embedding_provider
 from knowledge.extractors import DocumentExtractorFactory
 from knowledge.models import Document, DocumentChunk
 
@@ -18,7 +18,7 @@ class DocumentProcessingService:
 
         self.embedding_provider = (
             embedding_provider
-            or OllamaEmbeddingProvider()
+            or create_embedding_provider()
         )
 
     def process(self, document):

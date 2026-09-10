@@ -1,9 +1,7 @@
 from ai.domain.types import RetrievedChunk
 
-from knowledge.embeddings import (
-    EmbeddingProvider,
-    OllamaEmbeddingProvider,
-)
+from knowledge.embeddings import EmbeddingProvider
+from knowledge.embedding_factory import create_embedding_provider
 from knowledge.search_service import DocumentSearchService
 
 
@@ -15,7 +13,7 @@ class KnowledgeSearchService:
     ):
         self.embedding_provider = (
             embedding_provider
-            or OllamaEmbeddingProvider()
+            or create_embedding_provider()
         )
 
         self.search_service = (
