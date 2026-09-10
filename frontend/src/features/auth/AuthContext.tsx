@@ -5,7 +5,7 @@ import {
 } from "react";
 
 import { useQueryClient } from "@tanstack/react-query";
-
+import LoadingScreen from "../../components/LoadingScreen";
 import {
   getCurrentUser,
   login as loginRequest,
@@ -128,7 +128,9 @@ export function AuthProvider({
     login,
     logout,
   };
-
+  if (isLoading) {
+    return <LoadingScreen />;
+  }
   return (
     <AuthContext.Provider value={value}>
       {children}
