@@ -416,6 +416,10 @@ CELERY_TASK_TIME_LIMIT = 30 * 60
 
 CELERY_TASK_SOFT_TIME_LIMIT = 25 * 60
 
+CELERY_TASK_ALWAYS_EAGER = env.bool(
+    "CELERY_TASK_ALWAYS_EAGER",
+    default=False,
+)
 
 # ---------------------------------------------------------------------------
 # CORS
