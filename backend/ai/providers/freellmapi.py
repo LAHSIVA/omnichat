@@ -20,7 +20,7 @@ from ai.domain.exceptions import (
 )
 from ai.domain.types import ChatMessage, LLMResponse, TokenUsage
 from ai.providers.base import LLMProvider
-
+from openai import APIStatusError
 logger = logging.getLogger(__name__)
 
 
@@ -126,7 +126,27 @@ class FreeLLMAPIProvider(LLMProvider):
             raise LLMProviderError(
                 "LLM provider connection failed"
             ) from exc
+        except APIStatusError as exc:
+            logger.exception(
+                "FreeLLMAPI HTTP error: "
+                "status_code=%s model=%s request_id=%s response=%s",
+                exc.status_code,
+                model,
+                getattr(exc, "request_id", None),
+                getattr(exc.response, "text", None),
+            )
+
+            raise LLMProviderError(
+                f"FreeLLMAPI request failed with status {exc.status_code}"
+            ) from exc
+
         except APIError as exc:
+            logger.exception(
+                "FreeLLMAPI API error: model=%s error=%s",
+                model,
+                exc,
+            )
+
             raise LLMProviderError(
                 "LLM provider request failed"
             ) from exc
@@ -269,12 +289,27 @@ class FreeLLMAPIProvider(LLMProvider):
                 "LLM provider connection failed"
             ) from exc
 
+        except APIStatusError as exc:
+            logger.exception(
+                "FreeLLMAPI HTTP error: "
+                "status_code=%s model=%s request_id=%s response=%s",
+                exc.status_code,
+                model,
+                getattr(exc, "request_id", None),
+                getattr(exc.response, "text", None),
+            )
+
+            raise LLMProviderError(
+                f"FreeLLMAPI request failed with status {exc.status_code}"
+            ) from exc
+
         except APIError as exc:
             logger.exception(
-                "FreeLLMAPI API error: model=%s status_code=%s",
+                "FreeLLMAPI API error: model=%s error=%s",
                 model,
-                getattr(exc, "status_code", None),
+                exc,
             )
+
             raise LLMProviderError(
                 "LLM provider request failed"
             ) from exc
