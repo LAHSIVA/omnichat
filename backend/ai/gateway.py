@@ -146,8 +146,9 @@ class LLMGateway:
 
         duration_ms = (perf_counter() - start_time) * 1000
 
-        logger.error(
-            "LLM request failed",
+        logger.exception(
+            "LLM request failed: %s",
+            exc,
             extra={
                 "provider": provider_name,
                 "model": self.model,
@@ -284,8 +285,9 @@ class LLMGateway:
                     raise exc
 
                 except (LLMTimeoutError, LLMProviderError) as exc:
-                    logger.error(
+                    logger.exception(
                         "LLM streaming attempt failed",
+                        exc,
                         extra={
                             "provider": provider_name,
                             "model": candidate_model,
