@@ -234,25 +234,62 @@ class FreeLLMAPIProvider(LLMProvider):
                 yield content
 
         except AuthenticationError as exc:
+            logger.exception(
+                "FreeLLMAPI authentication error: model=%s",
+                model,
+            )
             raise LLMAuthenticationError(
                 "LLM provider authentication failed"
             ) from exc
+
         except RateLimitError as exc:
+            logger.exception(
+                "FreeLLMAPI rate limit error: model=%s",
+                model,
+            )
             raise LLMRateLimitError(
                 "LLM provider rate limit exceeded"
             ) from exc
+
         except APITimeoutError as exc:
+            logger.exception(
+                "FreeLLMAPI timeout: model=%s",
+                model,
+            )
             raise LLMTimeoutError(
                 "LLM provider request timed out"
             ) from exc
+
         except APIConnectionError as exc:
+            logger.exception(
+                "FreeLLMAPI connection error: model=%s",
+                model,
+            )
             raise LLMProviderError(
                 "LLM provider connection failed"
             ) from exc
+
         except APIError as exc:
+            logger.exception(
+                "FreeLLMAPI API error: model=%s status_code=%s",
+                model,
+                getattr(exc, "status_code", None),
+            )
             raise LLMProviderError(
                 "LLM provider request failed"
             ) from exc
+
+        except Exception as exc:
+            logger.exception(
+                "Unexpected FreeLLMAPI streaming error: "
+                "model=%s error_type=%s",
+                model,
+                type(exc).__name__,
+            )
+            raise LLMProviderError(
+                "Unexpected LLM provider error"
+            ) from exc
+
         finally:
             logger.info(
                 "FreeLLMAPI streaming request finished",
