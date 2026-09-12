@@ -13,7 +13,17 @@ import {
 
 interface ChatInputProps {
   conversationId: string;
+
+  /**
+   * The selected dropdown value is still accepted by the
+   * component so the existing parent/dropdown architecture
+   * does not need to change.
+   *
+   * For the current demo, this value is intentionally NOT
+   * forwarded to the backend.
+   */
   model?: string;
+
   onStreamStart: () => void;
   onStatus: (status: StreamStatus) => void;
   onToken: (token: string) => void;
@@ -23,7 +33,7 @@ interface ChatInputProps {
 
 function ChatInput({
   conversationId,
-  model,
+  model: _selectedModel,
   onStreamStart,
   onStatus,
   onToken,
@@ -79,6 +89,22 @@ function ChatInput({
 
     onStreamStart();
 
+    /*
+     * DEMO MODEL
+     *
+     * All frontend dropdown options intentionally use the
+     * same backend model for now.
+     *
+     * Auto       -> gpt-4o-mini
+     * Balances   -> gpt-4o-mini
+     * Fast       -> gpt-4o-mini
+     * Maximum    -> gpt-4o-mini
+     * Quality    -> gpt-4o-mini
+     *
+     * The selected dropdown value is therefore not sent.
+     */
+    const demoModel = "gpt-4o-mini";
+
     await streamMessage(
       conversationId,
       trimmedContent,
@@ -122,7 +148,8 @@ function ChatInput({
           textareaRef.current?.focus();
         }, 0);
       },
-      model,
+
+      demoModel,
     );
   }
 

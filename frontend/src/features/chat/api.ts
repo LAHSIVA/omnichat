@@ -81,6 +81,13 @@ export interface StreamStatus {
  * - token  → assistant response content
  * - done   → completed response
  * - error  → streaming error
+ *
+ * For the current demo, the model argument is intentionally
+ * optional and defaults to gpt-4o-mini.
+ *
+ * This prevents dropdown values such as "auto", "fast",
+ * "balanced", "maximum", or "quality" from being sent
+ * to the OpenAI provider.
  */
 export async function streamMessage(
   conversationId: string,
@@ -100,16 +107,20 @@ export async function streamMessage(
       `${import.meta.env.VITE_API_BASE_URL}/conversations/${conversationId}/messages/stream/`,
       {
         method: "POST",
+
         headers: {
           "Content-Type": "application/json",
+
           ...(token
             ? {
                 Authorization: `Bearer ${token}`,
               }
             : {}),
         },
+
         body: JSON.stringify({
           content,
+          model: "gpt-4o-mini",
         }),
       },
     );
@@ -149,6 +160,7 @@ export async function streamMessage(
       });
 
       const events = buffer.split("\n\n");
+
       buffer = events.pop() ?? "";
 
       for (const event of events) {
