@@ -12,7 +12,12 @@ AVAILABLE_MODELS = (
     ModelDefinition(
         id="auto",
         display_name="Auto",
-        description="Automatically select the best available model.",
+        description="Automatically use the configured AI model.",
+    ),
+    ModelDefinition(
+        id="gpt-4o-mini",
+        display_name="GPT-4o Mini",
+        description="Fast and efficient OpenAI model.",
     ),
     ModelDefinition(
         id="gemini-3.5-flash-lite",
