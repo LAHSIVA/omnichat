@@ -23,7 +23,5 @@ def create_llm_gateway(model: str | None = None) -> LLMGateway:
     return LLMGateway(
         provider=primary_provider,
         model=selected_model,
-        fallback_provider=fallback_provider,
-        fallback_model="auto",
-        enable_fallback=True,
+        enable_fallback=False,
     )
