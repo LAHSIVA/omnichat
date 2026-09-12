@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 class DocumentSearchService:
     """Search document chunks using pgvector cosine similarity."""
 
-    DEFAULT_MAX_DISTANCE = 0.50
+    DEFAULT_MAX_DISTANCE = 0.35
 
     def __init__(self, max_distance=None):
         self.max_distance = (

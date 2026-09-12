@@ -1,4 +1,5 @@
 import pytest
+from django.core.files.uploadedfile import SimpleUploadedFile
 
 from knowledge.models import Document, DocumentChunk
 
@@ -188,3 +189,79 @@ def test_deleting_document_deletes_chunks(
         id=chunk_id,
     ).exists()
 
+
+@pytest.mark.django_db
+def test_deleting_document_deletes_file_from_storage(
+    django_user_model,
+):
+    user = django_user_model.objects.create_user(
+        username="storage_delete_user",
+        password="test-password-123",
+    )
+
+    uploaded_file = SimpleUploadedFile(
+        "storage-delete.txt",
+        b"File that should be deleted.",
+        content_type="text/plain",
+    )
+
+    document = Document.objects.create(
+        user=user,
+        title="Storage Delete Test",
+        file=uploaded_file,
+        original_filename="storage-delete.txt",
+        content_type="text/plain",
+    )
+
+    file_name = document.file.name
+    storage = document.file.storage
+
+    assert storage.exists(file_name)
+
+    document.delete()
+
+    assert not Document.objects.filter(
+        id=document.id,
+    ).exists()
+
+    assert not storage.exists(file_name)
+
+@pytest.mark.django_db
+def test_deleting_user_deletes_document_file_from_storage(
+    django_user_model,
+):
+    user = django_user_model.objects.create_user(
+        username="storage_user_delete",
+        password="test-password-123",
+    )
+
+    uploaded_file = SimpleUploadedFile(
+        "user-storage-delete.txt",
+        b"File that should be deleted when user is deleted.",
+        content_type="text/plain",
+    )
+
+    document = Document.objects.create(
+        user=user,
+        title="User Storage Delete Test",
+        file=uploaded_file,
+        original_filename="user-storage-delete.txt",
+        content_type="text/plain",
+    )
+
+    file_name = document.file.name
+    storage = document.file.storage
+
+    assert storage.exists(file_name)
+
+    user.delete()
+
+    assert not django_user_model.objects.filter(
+        id=user.id,
+    ).exists()
+
+    assert not Document.objects.filter(
+        id=document.id,
+    ).exists()
+
+    assert not storage.exists(file_name)

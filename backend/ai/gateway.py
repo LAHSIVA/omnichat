@@ -146,14 +146,17 @@ class LLMGateway:
 
         duration_ms = (perf_counter() - start_time) * 1000
 
-        logger.exception(
-            "LLM request failed: %s",
-            exc,
+        logger.error(
+            "LLM request failed",
             extra={
                 "provider": provider_name,
                 "model": self.model,
                 "duration_ms": round(duration_ms, 2),
-                "error_type": type(last_error).__name__,
+                "error_type": (
+                    type(last_error).__name__
+                    if last_error is not None
+                    else "UnknownError"
+                ),
             },
         )
 
@@ -287,7 +290,6 @@ class LLMGateway:
                 except (LLMTimeoutError, LLMProviderError) as exc:
                     logger.exception(
                         "LLM streaming attempt failed",
-                        exc,
                         extra={
                             "provider": provider_name,
                             "model": candidate_model,
@@ -295,7 +297,6 @@ class LLMGateway:
                             "max_attempts": max_attempts,
                             "error_type": type(exc).__name__,
                         },
-                        exc_info=True,
                     )
 
                     if chunks_received:

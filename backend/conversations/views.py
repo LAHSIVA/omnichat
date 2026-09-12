@@ -220,6 +220,11 @@ class ConversationMessageStreamView(APIView):
             user=request.user,
         )
 
+    @extend_schema(
+        request=MessageCreateSerializer,
+        responses=None,
+    )
+
     def post(self, request, conversation_id):
         conversation = self.get_conversation(
             request,

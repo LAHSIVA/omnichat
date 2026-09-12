@@ -22,6 +22,7 @@ class DocumentListCreateView(generics.ListCreateAPIView):
 
         document = serializer.save(
             user=self.request.user,
+            file=uploaded_file,
             original_filename=uploaded_file.name,
             content_type=uploaded_file.content_type or "",
         )

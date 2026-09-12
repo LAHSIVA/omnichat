@@ -33,8 +33,8 @@ class Document(models.Model):
     )
 
     extracted_text = models.TextField(
-    blank=True,
-    default="",
+        blank=True,
+        default="",
     )
 
     status = models.CharField(
@@ -50,6 +50,10 @@ class Document(models.Model):
     updated_at = models.DateTimeField(
         auto_now=True,
     )
+
+    def delete(self, *args, **kwargs):
+        self.file.delete(save=False)
+        super().delete(*args, **kwargs)
 
     def __str__(self):
         return self.title

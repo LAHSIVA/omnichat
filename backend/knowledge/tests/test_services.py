@@ -280,3 +280,162 @@ def test_document_processing_creates_embeddings(
         len(chunk.embedding) == 1024
         for chunk in chunks
     )
+
+
+
+@pytest.mark.django_db
+def test_document_processing_is_idempotent(
+    django_user_model,
+):
+    user = django_user_model.objects.create_user(
+        username="idempotentprocessinguser",
+        password="test-password-123",
+    )
+
+    document = Document.objects.create(
+        user=user,
+        title="Idempotent Processing Test",
+        original_filename="notes.txt",
+        content_type="text/plain",
+    )
+
+    document.file.save(
+        "notes.txt",
+        ContentFile(
+            (
+                "Machine learning is useful for "
+                "predictive maintenance."
+            ).encode("utf-8")
+        ),
+    )
+
+    service = DocumentProcessingService(
+        embedding_provider=FakeEmbeddingProvider(),
+    )
+
+    first_result = service.process(document)
+
+    first_chunks = list(
+        DocumentChunk.objects.filter(
+            document=document,
+        ).order_by("chunk_index")
+    )
+
+    first_contents = [
+        chunk.content
+        for chunk in first_chunks
+    ]
+
+    first_count = len(first_chunks)
+
+    second_result = service.process(document)
+
+    document.refresh_from_db()
+
+    second_chunks = list(
+        DocumentChunk.objects.filter(
+            document=document,
+        ).order_by("chunk_index")
+    )
+
+    second_contents = [
+        chunk.content
+        for chunk in second_chunks
+    ]
+
+    assert first_result == second_result
+
+    assert document.status == Document.Status.COMPLETED
+
+    assert len(second_chunks) == first_count
+
+    assert second_contents == first_contents
+
+    assert [
+        chunk.chunk_index
+        for chunk in second_chunks
+    ] == list(range(len(second_chunks)))
+
+    assert all(
+        chunk.embedding is not None
+        for chunk in second_chunks
+    )
+
+
+@pytest.mark.django_db
+def test_document_processing_can_retry_after_failure(
+    django_user_model,
+):
+    user = django_user_model.objects.create_user(
+        username="retryprocessinguser",
+        password="test-password-123",
+    )
+
+    document = Document.objects.create(
+        user=user,
+        title="Retry Processing Test",
+        original_filename="notes.txt",
+        content_type="text/plain",
+    )
+
+    document.file.save(
+        "notes.txt",
+        ContentFile(
+            b"Machine learning is useful."
+        ),
+    )
+
+    class FlakyEmbeddingProvider:
+        def __init__(self):
+            self.calls = 0
+
+        def embed(self, texts):
+            self.calls += 1
+
+            if self.calls == 1:
+                raise RuntimeError("Temporary embedding failure")
+
+            return FakeEmbeddingProvider().embed(texts)
+
+    embedding_provider = FlakyEmbeddingProvider()
+
+    service = DocumentProcessingService(
+        embedding_provider=embedding_provider,
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="Temporary embedding failure",
+    ):
+        service.process(document)
+
+    document.refresh_from_db()
+
+    assert document.status == Document.Status.FAILED
+
+    assert not DocumentChunk.objects.filter(
+        document=document,
+    ).exists()
+
+    result = service.process(document)
+
+    document.refresh_from_db()
+
+    assert result == "Machine learning is useful."
+
+    assert document.status == Document.Status.COMPLETED
+
+    chunks = list(
+        DocumentChunk.objects.filter(
+            document=document,
+        ).order_by("chunk_index")
+    )
+
+    assert len(chunks) > 0
+
+    assert all(
+        chunk.embedding is not None
+        for chunk in chunks
+    )
+
+    assert embedding_provider.calls == 2

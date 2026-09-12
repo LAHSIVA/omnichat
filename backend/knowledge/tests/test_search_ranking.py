@@ -33,7 +33,7 @@ def test_search_orders_chunks_by_similarity(
         document=document,
         content="Somewhat relevant content.",
         chunk_index=1,
-        embedding=[0.5] + [0.8660254] + [0.0] * 1022,
+        embedding=[0.8] + [0.6] + [0.0] * 1022,
     )
 
     DocumentChunk.objects.create(
