@@ -20,15 +20,8 @@ class LLMGateway:
     """
     Central gateway for LLM calls.
 
-    The gateway supports two fallback mechanisms:
-
-    1. Model fallback:
-       Try alternate models using the same provider.
-
-    2. Provider fallback:
-       If the primary provider fails, switch to a secondary provider.
-
-    Provider fallback is preferred when configured.
+    Resolves logical application model names such as "auto"
+    into actual provider model names before making the request.
     """
 
     FALLBACK_ERRORS = (
@@ -62,27 +55,35 @@ class LLMGateway:
         self,
     ) -> list[tuple[LLMProvider, str]]:
         """
-        Build the ordered provider/model fallback chain.
+        Build the ordered provider/model chain.
 
-        If a secondary provider exists:
-
-            primary provider + primary model
-            secondary provider + fallback model
-
-        Otherwise use the model fallback policy on the
-        primary provider.
+        Logical models such as "auto" are resolved through
+        ModelFallbackPolicy before being sent to a provider.
         """
 
-        if not self.enable_fallback:
-            return [(self.provider, self.model)]
+        models = ModelFallbackPolicy.candidates(self.model)
 
-        if self.fallback_provider is not None:
+        if not self.enable_fallback:
             return [
-                (self.provider, self.model),
-                (self.fallback_provider, self.fallback_model),
+                (self.provider, models[0])
             ]
 
-        models = ModelFallbackPolicy.candidates(self.model)
+        if self.fallback_provider is not None:
+            primary_model = models[0]
+
+            fallback_models = ModelFallbackPolicy.candidates(
+                self.fallback_model
+            )
+
+            fallback_model = fallback_models[0]
+
+            return [
+                (self.provider, primary_model),
+                (
+                    self.fallback_provider,
+                    fallback_model,
+                ),
+            ]
 
         return [
             (self.provider, candidate_model)
@@ -167,7 +168,10 @@ class LLMGateway:
                     extra={
                         "provider": response.provider,
                         "model": response.model,
-                        "duration_ms": round(duration_ms, 2),
+                        "duration_ms": round(
+                            duration_ms,
+                            2,
+                        ),
                         "input_tokens": (
                             usage.input_tokens
                             if usage is not None
@@ -178,7 +182,9 @@ class LLMGateway:
                             if usage is not None
                             else None
                         ),
-                        "finish_reason": response.finish_reason,
+                        "finish_reason": (
+                            response.finish_reason
+                        ),
                     },
                 )
 
@@ -197,15 +203,19 @@ class LLMGateway:
                 )
 
                 if index < len(candidates) - 1:
-                    next_provider, next_model = candidates[index + 1]
+                    next_provider, next_model = (
+                        candidates[index + 1]
+                    )
 
-                    logger.exception(
+                    logger.info(
                         "Switching LLM fallback",
                         extra={
                             "failed_provider": provider_name,
                             "failed_model": model,
-                            "fallback_provider": self._provider_name(
-                                next_provider
+                            "fallback_provider": (
+                                self._provider_name(
+                                    next_provider
+                                )
                             ),
                             "fallback_model": next_model,
                         },
@@ -227,7 +237,10 @@ class LLMGateway:
                     if last_error is not None
                     else None
                 ),
-                "duration_ms": round(duration_ms, 2),
+                "duration_ms": round(
+                    duration_ms,
+                    2,
+                ),
             },
         )
 
@@ -247,9 +260,7 @@ class LLMGateway:
         """
         Stream from the first available provider/model.
 
-        Fallback is allowed only before the first token is emitted.
-        Once output has reached the client, switching providers would
-        corrupt or duplicate the response.
+        Fallback is allowed only before the first token.
         """
 
         start_time = perf_counter()
@@ -289,39 +300,45 @@ class LLMGateway:
                     extra={
                         "provider": provider_name,
                         "model": model,
-                        "duration_ms": round(duration_ms, 2),
+                        "duration_ms": round(
+                            duration_ms,
+                            2,
+                        ),
                     },
                 )
 
                 return
 
-            except self.FALLBACK_ERRORS as exc:
+            except self.FALLBACK_ERRORS:
                 logger.exception(
                     "LLM streaming provider failed",
                     extra={
                         "provider": provider_name,
                         "model": model,
-                        "error_type": type(exc).__name__,
+                        "error_type": "LLMProviderError",
                         "chunks_received": chunks_received,
                     },
                 )
 
-                # Never switch providers after partial output.
                 if chunks_received:
                     raise
 
                 if index >= len(candidates) - 1:
                     raise
 
-                next_provider, next_model = candidates[index + 1]
+                next_provider, next_model = (
+                    candidates[index + 1]
+                )
 
-                logger.exception(
+                logger.info(
                     "Switching streaming request to fallback",
                     extra={
                         "failed_provider": provider_name,
                         "failed_model": model,
-                        "fallback_provider": self._provider_name(
-                            next_provider
+                        "fallback_provider": (
+                            self._provider_name(
+                                next_provider
+                            )
                         ),
                         "fallback_model": next_model,
                     },

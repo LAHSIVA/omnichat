@@ -4,11 +4,10 @@ from ai.gateway import LLMGateway
 from ai.providers.base import LLMProvider
 from ai.providers.factory import create_llm_provider
 from ai.providers.freellmapi import FreeLLMAPIProvider
-from ai.providers.openai import OpenAIProvider
 
 
 def create_llm_gateway(model: str | None = None) -> LLMGateway:
-    selected_model = model or settings.AI_MODEL
+    selected_model = model or "auto"
 
     primary_provider = create_llm_provider()
 
@@ -23,5 +22,9 @@ def create_llm_gateway(model: str | None = None) -> LLMGateway:
     return LLMGateway(
         provider=primary_provider,
         model=selected_model,
-        enable_fallback=False,
+        fallback_provider=fallback_provider,
+        fallback_model="auto",
+        enable_fallback=(
+            fallback_provider is not None
+        ),
     )
