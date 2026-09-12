@@ -288,16 +288,20 @@ function ChatPage() {
               "
             >
               <option value="auto">Auto</option>
-              <option value="gemini-3.5-flash-lite">
+
+              <option value="fast">
                 Fast
               </option>
-              <option value="gemini-3.6-flash">
+
+              <option value="balanced">
                 Balanced
               </option>
-              <option value="claude-sonnet-4-5">
+
+              <option value="quality">
                 Quality
               </option>
-              <option value="fusion">
+
+              <option value="maximum">
                 Maximum
               </option>
             </select>

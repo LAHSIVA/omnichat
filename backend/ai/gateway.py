@@ -187,7 +187,7 @@ class LLMGateway:
             except self.FALLBACK_ERRORS as exc:
                 last_error = exc
 
-                logger.warning(
+                logger.exception(
                     "LLM provider failed",
                     extra={
                         "provider": provider_name,
@@ -199,7 +199,7 @@ class LLMGateway:
                 if index < len(candidates) - 1:
                     next_provider, next_model = candidates[index + 1]
 
-                    logger.warning(
+                    logger.exception(
                         "Switching LLM fallback",
                         extra={
                             "failed_provider": provider_name,
@@ -296,7 +296,7 @@ class LLMGateway:
                 return
 
             except self.FALLBACK_ERRORS as exc:
-                logger.warning(
+                logger.exception(
                     "LLM streaming provider failed",
                     extra={
                         "provider": provider_name,
@@ -315,7 +315,7 @@ class LLMGateway:
 
                 next_provider, next_model = candidates[index + 1]
 
-                logger.warning(
+                logger.exception(
                     "Switching streaming request to fallback",
                     extra={
                         "failed_provider": provider_name,
