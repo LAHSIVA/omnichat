@@ -7,6 +7,7 @@ from knowledge.models import Document
 class DocumentSerializer(serializers.ModelSerializer):
     title = serializers.CharField(
         max_length=255,
+        required=False,
         allow_blank=True,
     )
 
@@ -32,14 +33,7 @@ class DocumentSerializer(serializers.ModelSerializer):
         ]
 
     def validate_title(self, value):
-        value = value.strip()
-
-        if not value:
-            raise serializers.ValidationError(
-                "Title cannot be empty."
-            )
-
-        return value
+        return value.strip()
 
     def validate_file(self, value):
         allowed_content_types = {

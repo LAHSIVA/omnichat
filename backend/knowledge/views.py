@@ -8,6 +8,8 @@ from rest_framework.views import APIView
 from knowledge.models import Document
 from knowledge.serializers import DocumentSerializer
 from knowledge.tasks import process_document_task
+
+
 class DocumentListCreateView(generics.ListCreateAPIView):
     serializer_class = DocumentSerializer
     permission_classes = [IsAuthenticated]
@@ -20,9 +22,14 @@ class DocumentListCreateView(generics.ListCreateAPIView):
     def perform_create(self, serializer):
         uploaded_file = self.request.FILES["file"]
 
+        title = serializer.validated_data.get("title", "").strip()
+
+        if not title:
+            title = uploaded_file.name
+
         document = serializer.save(
             user=self.request.user,
-            file=uploaded_file,
+            title=title,
             original_filename=uploaded_file.name,
             content_type=uploaded_file.content_type or "",
         )
@@ -42,6 +49,7 @@ class DocumentDetailView(generics.RetrieveDestroyAPIView):
 
 class DocumentRetryView(APIView):
     permission_classes = [IsAuthenticated]
+
     @extend_schema(
         request=None,
         responses={202: DocumentSerializer},
@@ -64,6 +72,7 @@ class DocumentRetryView(APIView):
             )
 
         document.status = Document.Status.PENDING
+
         document.save(
             update_fields=[
                 "status",
