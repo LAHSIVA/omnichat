@@ -56,10 +56,6 @@ export async function deleteConversation(
   );
 }
 
-/**
- * Represents a progress update sent by the backend
- * while an assistant response is being generated.
- */
 export interface StreamStatus {
   stage:
     | "preparing"
@@ -75,19 +71,16 @@ export interface StreamStatus {
 /**
  * Stream an assistant response using Server-Sent Events.
  *
- * The backend can send:
+ * The model parameter is the UI model ID:
  *
- * - status → progress information
- * - token  → assistant response content
- * - done   → completed response
- * - error  → streaming error
+ * auto
+ * gemini-3.5-flash-lite
+ * gemini-3.6-flash
+ * claude-sonnet-4-5
+ * fusion
  *
- * For the current demo, the model argument is intentionally
- * optional and defaults to gpt-4o-mini.
- *
- * This prevents dropdown values such as "auto", "fast",
- * "balanced", "maximum", or "quality" from being sent
- * to the OpenAI provider.
+ * The backend accepts these IDs and routes all of them
+ * to the configured actual provider model (gpt-4o-mini).
  */
 export async function streamMessage(
   conversationId: string,
@@ -96,7 +89,7 @@ export async function streamMessage(
   onToken: (token: string) => void,
   onComplete: (data: ChatResponse) => void,
   onError: (error: Error) => void,
-  _model?: string,
+  model?: string,
 ): Promise<void> {
   const token = sessionStorage.getItem(
     "omnichat_access_token",
@@ -120,7 +113,13 @@ export async function streamMessage(
 
         body: JSON.stringify({
           content,
-          model: "gpt-4o-mini",
+
+          // IMPORTANT:
+          // Send the UI model ID, NOT "gpt-4o-mini".
+          //
+          // If no model is supplied, use "auto", which is
+          // accepted by the backend serializer.
+          model: model || "auto",
         }),
       },
     );
@@ -132,9 +131,22 @@ export async function streamMessage(
     }
 
     if (!response.ok) {
-      throw new Error(
-        `Streaming request failed: ${response.status}`,
-      );
+      let errorMessage = `Streaming request failed: ${response.status}`;
+
+      try {
+        const errorData = await response.json();
+
+        if (errorData?.model?.[0]) {
+          errorMessage = errorData.model[0];
+        } else if (errorData?.detail) {
+          errorMessage = errorData.detail;
+        }
+      } catch {
+        // Keep the HTTP status error if the response
+        // is not JSON.
+      }
+
+      throw new Error(errorMessage);
     }
 
     if (!response.body) {
@@ -174,9 +186,19 @@ export async function streamMessage(
           continue;
         }
 
-        const data = JSON.parse(
-          dataLine.slice(6),
-        );
+        let data: any;
+
+        try {
+          data = JSON.parse(
+            dataLine.slice(6),
+          );
+        } catch {
+          console.error(
+            "Invalid SSE data:",
+            dataLine,
+          );
+          continue;
+        }
 
         if (data.type === "status") {
           onStatus({
@@ -204,7 +226,8 @@ export async function streamMessage(
 
         if (data.type === "error") {
           throw new Error(
-            data.message || "Streaming failed.",
+            data.message ||
+              "The AI service failed.",
           );
         }
       }
