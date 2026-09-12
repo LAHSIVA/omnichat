@@ -4,39 +4,17 @@ from django.conf import settings
 
 
 class ModelFallbackPolicy:
-    """Resolve logical application model names to provider models."""
-
-    _FALLBACKS: dict[str, tuple[str, ...]] = {
-        "auto": (),
-        "gemini-3.5-flash-lite": (
-            "gemini-3.5-flash-lite",
-        ),
-        "gemini-3.6-flash": (
-            "gemini-3.6-flash",
-        ),
-        "claude-sonnet-4-5": (
-            "claude-sonnet-4-5",
-        ),
-        "fusion": (
-            "fusion",
-        ),
-    }
+    """Resolve an ordered list of models for transient LLM failures."""
 
     @classmethod
     def candidates(cls, model: str | None) -> Sequence[str]:
         """
-        Return provider models to try.
+        Return the model to use.
 
-        'auto' means use the configured default model rather
-        than sending the literal string 'auto' to the provider.
+        For the current demo, every frontend model selection is mapped
+        to the configured backend model. This prevents UI-only model
+        names such as 'auto', 'fast', 'maximum', etc. from being sent
+        directly to OpenAI.
         """
 
-        selected_model = model or "auto"
-
-        if selected_model == "auto":
-            return (settings.AI_MODEL,)
-
-        return cls._FALLBACKS.get(
-            selected_model,
-            (selected_model,),
-        )
+        return (settings.AI_MODEL,)
