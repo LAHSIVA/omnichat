@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
+import os
 from datetime import timedelta
 from pathlib import Path
 
@@ -41,11 +42,6 @@ SECURE_SSL_REDIRECT = env.bool(
     default=False,
 )
 
-SECURE_HSTS_SECONDS = env.int(
-    "DJANGO_SECURE_HSTS_SECONDS",
-    default=0,
-)
-
 SESSION_COOKIE_SECURE = env.bool(
     "DJANGO_SESSION_COOKIE_SECURE",
     default=False,
@@ -56,14 +52,20 @@ CSRF_COOKIE_SECURE = env.bool(
     default=False,
 )
 
-SECURE_SSL_REDIRECT = not DEBUG
+SECURE_HSTS_SECONDS = env.int(
+    "DJANGO_SECURE_HSTS_SECONDS",
+    default=0,
+)
 
-SESSION_COOKIE_SECURE = not DEBUG
-CSRF_COOKIE_SECURE = not DEBUG
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env.bool(
+    "DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS",
+    default=False,
+)
 
-SECURE_HSTS_SECONDS = 31536000 if not DEBUG else 0
-SECURE_HSTS_INCLUDE_SUBDOMAINS = not DEBUG
-SECURE_HSTS_PRELOAD = not DEBUG
+SECURE_HSTS_PRELOAD = env.bool(
+    "DJANGO_SECURE_HSTS_PRELOAD",
+    default=False,
+)
 
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = "DENY"
@@ -286,6 +288,17 @@ AI_MODEL = env(
     default="fake-model",
 )
 
+OPENAI_API_KEY = env("OPENAI_API_KEY", default="")
+OPENAI_BASE_URL = env(
+    "OPENAI_BASE_URL",
+    default="https://api.openai.com/v1",
+)
+
+OPENAI_READ_TIMEOUT = env.float(
+    "OPENAI_READ_TIMEOUT",
+    default=30.0,
+)
+
 AI_CONTEXT_MAX_TOKENS = env(
     "AI_CONTEXT_MAX_TOKENS",
     default=4000,
@@ -429,7 +442,7 @@ KNOWLEDGE_MAX_FILE_SIZE = env(
 
 KNOWLEDGE_SEARCH_MAX_DISTANCE = env(
     "KNOWLEDGE_SEARCH_MAX_DISTANCE",
-    default=0.50,
+    default=0.35,
 )
 
 

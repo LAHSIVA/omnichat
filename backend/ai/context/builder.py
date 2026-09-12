@@ -53,6 +53,10 @@ class ContextBuilder:
             selected_system_messages.append(message)
             system_tokens += message_tokens
 
+        # A context may legitimately contain only system messages.
+        if not non_system_messages:
+            return selected_system_messages
+
         latest_message = non_system_messages[-1]
 
         latest_tokens = self.token_counter.count(

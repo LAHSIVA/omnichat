@@ -1,7 +1,9 @@
 import logging
+from collections.abc import Iterator
 from time import perf_counter
 
 from ai.domain.exceptions import (
+    LLMAuthenticationError,
     LLMProviderError,
     LLMRateLimitError,
     LLMTimeoutError,
@@ -15,7 +17,25 @@ logger = logging.getLogger(__name__)
 
 
 class LLMGateway:
-    """Gateway that adds retry and observability around an LLM provider."""
+    """
+    Central gateway for LLM calls.
+
+    The gateway supports two fallback mechanisms:
+
+    1. Model fallback:
+       Try alternate models using the same provider.
+
+    2. Provider fallback:
+       If the primary provider fails, switch to a secondary provider.
+
+    Provider fallback is preferred when configured.
+    """
+
+    FALLBACK_ERRORS = (
+        LLMRateLimitError,
+        LLMTimeoutError,
+        LLMProviderError,
+    )
 
     def __init__(
         self,
@@ -23,45 +43,77 @@ class LLMGateway:
         model: str,
         retry_policy: RetryPolicy | None = None,
         *,
+        fallback_provider: LLMProvider | None = None,
+        fallback_model: str = "auto",
         enable_fallback: bool = False,
     ) -> None:
         self.provider = provider
+        self.fallback_provider = fallback_provider
         self.model = model
+        self.fallback_model = fallback_model
         self.retry_policy = retry_policy or RetryPolicy()
         self.enable_fallback = enable_fallback
 
-    def _model_candidates(self) -> tuple[str, ...]:
-        """Return models in fallback priority order."""
-        return tuple(ModelFallbackPolicy.candidates(self.model))
+    @staticmethod
+    def _provider_name(provider: LLMProvider) -> str:
+        return type(provider).__name__
 
-    def _generate_candidate(
+    def _provider_candidates(
         self,
+    ) -> list[tuple[LLMProvider, str]]:
+        """
+        Build the ordered provider/model fallback chain.
+
+        If a secondary provider exists:
+
+            primary provider + primary model
+            secondary provider + fallback model
+
+        Otherwise use the model fallback policy on the
+        primary provider.
+        """
+
+        if not self.enable_fallback:
+            return [(self.provider, self.model)]
+
+        if self.fallback_provider is not None:
+            return [
+                (self.provider, self.model),
+                (self.fallback_provider, self.fallback_model),
+            ]
+
+        models = ModelFallbackPolicy.candidates(self.model)
+
+        return [
+            (self.provider, candidate_model)
+            for candidate_model in models
+        ]
+
+    def _generate_with_provider(
+        self,
+        provider: LLMProvider,
         messages: list[ChatMessage],
+        *,
         model: str,
         temperature: float,
         max_tokens: int,
     ) -> LLMResponse:
-        """Generate a response using one model with retry handling."""
         attempts = 0
-        provider_name = type(self.provider).__name__
 
         def operation() -> LLMResponse:
             nonlocal attempts
             attempts += 1
 
-            if attempts > 1:
-                logger.info(
-                    "LLM request retrying",
-                    extra={
-                        "provider": provider_name,
-                        "model": model,
-                        "attempt": attempts,
-                        "next_attempt": attempts + 1,
-                        "max_attempts": self.retry_policy.max_attempts,
-                    },
-                )
+            logger.info(
+                "LLM provider attempt",
+                extra={
+                    "provider": self._provider_name(provider),
+                    "model": model,
+                    "attempt": attempts,
+                },
+            )
 
-            return self.provider.generate(
+            return provider.generate(
                 messages=messages,
                 model=model,
                 temperature=temperature,
@@ -70,50 +122,45 @@ class LLMGateway:
 
         return self.retry_policy.execute(operation)
 
-
     def generate(
         self,
         messages: list[ChatMessage],
         temperature: float = 0.2,
         max_tokens: int = 4096,
     ) -> LLMResponse:
-        """Generate a response with retry and optional model fallback."""
+        """Generate a response with automatic fallback."""
+
         start_time = perf_counter()
-
-        provider_name = type(self.provider).__name__
-        candidates = (
-            self._model_candidates()
-            if self.enable_fallback
-            else (self.model,)
-        )
-
-        logger.info(
-            "LLM request started",
-            extra={
-                "provider": provider_name,
-                "model": self.model,
-            },
-        )
-
         last_error: Exception | None = None
 
-        for candidate_index, candidate_model in enumerate(candidates):
+        candidates = self._provider_candidates()
+
+        for index, (provider, model) in enumerate(candidates):
+            provider_name = self._provider_name(provider)
+
+            logger.info(
+                "LLM request started",
+                extra={
+                    "provider": provider_name,
+                    "model": model,
+                    "provider_index": index,
+                },
+            )
+
             try:
-                response = self._generate_candidate(
-                    messages=messages,
-                    model=candidate_model,
+                response = self._generate_with_provider(
+                    provider,
+                    messages,
+                    model=model,
                     temperature=temperature,
                     max_tokens=max_tokens,
                 )
 
-                duration_ms = (perf_counter() - start_time) * 1000
+                duration_ms = (
+                    perf_counter() - start_time
+                ) * 1000
 
-                input_tokens = None
-                output_tokens = None
-
-                if response.usage is not None:
-                    input_tokens = response.usage.input_tokens
-                    output_tokens = response.usage.output_tokens
+                usage = response.usage
 
                 logger.info(
                     "LLM request completed",
@@ -121,213 +168,163 @@ class LLMGateway:
                         "provider": response.provider,
                         "model": response.model,
                         "duration_ms": round(duration_ms, 2),
-                        "input_tokens": input_tokens,
-                        "output_tokens": output_tokens,
+                        "input_tokens": (
+                            usage.input_tokens
+                            if usage is not None
+                            else None
+                        ),
+                        "output_tokens": (
+                            usage.output_tokens
+                            if usage is not None
+                            else None
+                        ),
+                        "finish_reason": response.finish_reason,
                     },
                 )
 
                 return response
 
-            except (LLMRateLimitError, LLMTimeoutError, LLMProviderError) as exc:
+            except self.FALLBACK_ERRORS as exc:
                 last_error = exc
 
-                if candidate_index >= len(candidates) - 1:
-                    break
-
                 logger.warning(
-                    "LLM model fallback",
+                    "LLM provider failed",
                     extra={
                         "provider": provider_name,
-                        "failed_model": candidate_model,
-                        "fallback_model": candidates[candidate_index + 1],
+                        "model": model,
                         "error_type": type(exc).__name__,
                     },
                 )
 
-        duration_ms = (perf_counter() - start_time) * 1000
+                if index < len(candidates) - 1:
+                    next_provider, next_model = candidates[index + 1]
+
+                    logger.warning(
+                        "Switching LLM fallback",
+                        extra={
+                            "failed_provider": provider_name,
+                            "failed_model": model,
+                            "fallback_provider": self._provider_name(
+                                next_provider
+                            ),
+                            "fallback_model": next_model,
+                        },
+                    )
+
+        duration_ms = (
+            perf_counter() - start_time
+        ) * 1000
 
         logger.error(
             "LLM request failed",
             extra={
-                "provider": provider_name,
-                "model": self.model,
-                "duration_ms": round(duration_ms, 2),
+                "provider": self._provider_name(
+                    candidates[-1][0]
+                ),
+                "model": candidates[-1][1],
                 "error_type": (
                     type(last_error).__name__
                     if last_error is not None
-                    else "UnknownError"
+                    else None
                 ),
+                "duration_ms": round(duration_ms, 2),
             },
         )
 
         if last_error is not None:
             raise last_error
 
-        raise RuntimeError("LLM request failed without an exception.")
-    # Streaming retries and telemetry intentionally keep this state together.
-    def generate_stream(  # pylint: disable=too-many-locals
+        raise LLMProviderError(
+            "No LLM provider was available."
+        )
+
+    def generate_stream(
         self,
         messages: list[ChatMessage],
         temperature: float = 0.2,
         max_tokens: int = 4096,
-    ):
-        overall_start = perf_counter()
+    ) -> Iterator[str]:
+        """
+        Stream from the first available provider/model.
 
-        provider_name = type(self.provider).__name__
+        Fallback is allowed only before the first token is emitted.
+        Once output has reached the client, switching providers would
+        corrupt or duplicate the response.
+        """
 
-        candidates = (
-            self._model_candidates()
-            if self.enable_fallback
-            else (self.model,)
-        )
+        start_time = perf_counter()
+        candidates = self._provider_candidates()
 
-        logger.info(
-            "LLM streaming request started",
-            extra={
-                "provider": provider_name,
-                "model": self.model,
-            },
-        )
+        for index, (provider, model) in enumerate(candidates):
+            provider_name = self._provider_name(provider)
+            chunks_received = False
 
-        for candidate_index, candidate_model in enumerate(candidates):
-            max_attempts = self.retry_policy.max_attempts
+            logger.info(
+                "LLM streaming provider started",
+                extra={
+                    "provider": provider_name,
+                    "model": model,
+                    "provider_index": index,
+                },
+            )
 
-            for attempt in range(1, max_attempts + 1):
-                attempt_start = perf_counter()
-                chunks_received = False
+            try:
+                stream = provider.generate_stream(
+                    messages=messages,
+                    model=model,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+
+                for chunk in stream:
+                    chunks_received = True
+                    yield chunk
+
+                duration_ms = (
+                    perf_counter() - start_time
+                ) * 1000
 
                 logger.info(
-                    "LLM streaming attempt started",
+                    "LLM streaming request completed",
                     extra={
                         "provider": provider_name,
-                        "model": candidate_model,
-                        "attempt": attempt,
+                        "model": model,
+                        "duration_ms": round(duration_ms, 2),
                     },
                 )
 
-                try:
-                    stream = self.provider.generate_stream(
-                        messages=messages,
-                        model=candidate_model,
-                        temperature=temperature,
-                        max_tokens=max_tokens,
-                    )
+                return
 
-                    for chunk in stream:
-                        if not chunks_received:
-                            chunks_received = True
+            except self.FALLBACK_ERRORS as exc:
+                logger.warning(
+                    "LLM streaming provider failed",
+                    extra={
+                        "provider": provider_name,
+                        "model": model,
+                        "error_type": type(exc).__name__,
+                        "chunks_received": chunks_received,
+                    },
+                )
 
-                            ttft_ms = (
-                                perf_counter() - attempt_start
-                            ) * 1000
-
-                            logger.info(
-                                "LLM first token received",
-                                extra={
-                                    "provider": provider_name,
-                                    "model": candidate_model,
-                                    "attempt": attempt,
-                                    "duration_ms": round(
-                                        ttft_ms,
-                                        2,
-                                    ),
-                                    "ttft_ms": round(
-                                        ttft_ms,
-                                        2,
-                                    ),
-                                },
-                            )
-
-                        yield chunk
-
-                    attempt_duration_ms = (
-                        perf_counter() - attempt_start
-                    ) * 1000
-
-                    overall_duration_ms = (
-                        perf_counter() - overall_start
-                    ) * 1000
-
-                    logger.info(
-                        "LLM streaming request completed",
-                        extra={
-                            "provider": provider_name,
-                            "model": candidate_model,
-                            "attempt": attempt,
-                            "duration_ms": round(
-                                attempt_duration_ms,
-                                2,
-                            ),
-                            "overall_duration_ms": round(
-                                overall_duration_ms,
-                                2,
-                            ),
-                            "chunks_received": chunks_received,
-                        },
-                    )
-
-                    return
-
-                except LLMRateLimitError as exc:
-                    logger.warning(
-                        "LLM streaming attempt rate limited",
-                        extra={
-                            "provider": provider_name,
-                            "model": candidate_model,
-                            "attempt": attempt,
-                            "max_attempts": max_attempts,
-                        },
-                    )
-
-                    if chunks_received:
-                        raise
-
-                    if candidate_index < len(candidates) - 1:
-                        break
-
-                    raise exc
-
-                except (LLMTimeoutError, LLMProviderError) as exc:
-                    logger.exception(
-                        "LLM streaming attempt failed",
-                        extra={
-                            "provider": provider_name,
-                            "model": candidate_model,
-                            "attempt": attempt,
-                            "max_attempts": max_attempts,
-                            "error_type": type(exc).__name__,
-                        },
-                    )
-
-                    if chunks_received:
-                        raise
-
-                    if attempt < max_attempts:
-                        logger.info(
-                            "Retrying LLM streaming request",
-                            extra={
-                                "provider": provider_name,
-                                "model": candidate_model,
-                                "attempt": attempt,
-                                "next_attempt": attempt + 1,
-                            },
-                        )
-
-                        self.retry_policy.sleep()
-                        continue
-
-                    if candidate_index < len(candidates) - 1:
-                        logger.warning(
-                            "LLM streaming model fallback",
-                            extra={
-                                "provider": provider_name,
-                                "failed_model": candidate_model,
-                                "fallback_model": (
-                                    candidates[candidate_index + 1]
-                                ),
-                                "error_type": type(exc).__name__,
-                            },
-                        )
-                        break
-
+                # Never switch providers after partial output.
+                if chunks_received:
                     raise
+
+                if index >= len(candidates) - 1:
+                    raise
+
+                next_provider, next_model = candidates[index + 1]
+
+                logger.warning(
+                    "Switching streaming request to fallback",
+                    extra={
+                        "failed_provider": provider_name,
+                        "failed_model": model,
+                        "fallback_provider": self._provider_name(
+                            next_provider
+                        ),
+                        "fallback_model": next_model,
+                    },
+                )
+
+                continue

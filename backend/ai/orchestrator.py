@@ -9,6 +9,7 @@ from ai.context.token_counter import CharacterTokenCounter
 from ai.domain.enums import ResponseMode
 from ai.domain.types import ChatMessage, LLMResponse, RetrievedChunk
 from ai.factory import create_llm_gateway
+from ai.retrieval.query_builder import RetrievalQueryBuilder
 from ai.retrieval.relevance import RelevanceEvaluator
 from ai.retrieval.service import RetrievalService
 from conversations.models import Conversation, Message, MessageSource
@@ -29,8 +30,8 @@ class ChatResult:
 
 class ChatOrchestrator:
     """Coordinates conversational chat and document-grounded RAG."""
-    # Dependency injection keeps the orchestrator easy to test and compose.
-    def __init__( # pylint: disable=too-many-arguments,too-many-positional-arguments
+
+    def __init__(  # pylint: disable=too-many-arguments
         self,
         *,
         gateway=None,
@@ -38,6 +39,7 @@ class ChatOrchestrator:
         context_assembler=None,
         knowledge_search=None,
         retrieval_service=None,
+        retrieval_query_builder=None,
         model=None,
     ):
         self.gateway = gateway or create_llm_gateway(model=model)
@@ -52,6 +54,11 @@ class ChatOrchestrator:
 
         self.context_assembler = (
             context_assembler or ContextAssembler()
+        )
+
+        self.retrieval_query_builder = (
+            retrieval_query_builder
+            or RetrievalQueryBuilder()
         )
 
         if retrieval_service is not None:
@@ -74,11 +81,17 @@ class ChatOrchestrator:
         *,
         content: str,
         conversation: Conversation,
+        history: list[ChatMessage],
     ):
-        """Retrieve knowledge and determine the response mode."""
+        """Retrieve knowledge using a context-aware retrieval query."""
+
+        retrieval_query = self.retrieval_query_builder.build(
+            content=content,
+            history=history,
+        )
 
         return self.retrieval_service.retrieve(
-            query=content,
+            query=retrieval_query,
             user=conversation.user,
             limit=settings.AI_KNOWLEDGE_TOP_K,
         )
@@ -143,6 +156,11 @@ class ChatOrchestrator:
     ) -> ChatResult:
         """Generate a complete assistant response."""
 
+        # Retrieve using the conversation history BEFORE saving the
+        # current question. This prevents the current question from
+        # becoming part of its own retrieval-query history.
+        history = self._get_history(conversation)
+
         user_message = Message.objects.create(
             conversation=conversation,
             role=Message.Role.USER,
@@ -152,6 +170,7 @@ class ChatOrchestrator:
         retrieval = self._retrieve(
             content=content,
             conversation=conversation,
+            history=history,
         )
 
         mode = (
@@ -160,10 +179,12 @@ class ChatOrchestrator:
             else ResponseMode.GENERAL
         )
 
-        history = self._get_history(conversation)
+        # Build LLM context after saving the user message so the
+        # current question is included in the conversation history.
+        llm_history = self._get_history(conversation)
 
         bounded_messages = self._build_context(
-            history=history,
+            history=llm_history,
             chunks=retrieval.chunks,
             mode=mode,
         )
@@ -205,7 +226,12 @@ class ChatOrchestrator:
     ) -> Iterator[dict]:
         """Generate an assistant response as a token stream."""
 
-        Message.objects.create(
+        # Preserve the previous conversation for retrieval-query
+        # resolution, especially for questions such as:
+        # "What is his role?"
+        history = self._get_history(conversation)
+
+        user_message = Message.objects.create(
             conversation=conversation,
             role=Message.Role.USER,
             content=content,
@@ -226,6 +252,7 @@ class ChatOrchestrator:
         retrieval = self._retrieve(
             content=content,
             conversation=conversation,
+            history=history,
         )
 
         mode = (
@@ -259,10 +286,12 @@ class ChatOrchestrator:
             "message": "Building response context...",
         }
 
-        history = self._get_history(conversation)
+        # Re-read the conversation after saving the current user
+        # message so the LLM receives the latest question.
+        llm_history = self._get_history(conversation)
 
         bounded_messages = self._build_context(
-            history=history,
+            history=llm_history,
             chunks=retrieval.chunks,
             mode=mode,
         )

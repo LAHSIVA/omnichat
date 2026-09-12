@@ -281,7 +281,7 @@ class ConversationMessageStreamView(APIView):
 
         response["Cache-Control"] = "no-cache"
         response["X-Accel-Buffering"] = "no"
-        response["Connection"] = "keep-alive"
+
 
         return response
 
