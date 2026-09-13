@@ -16,6 +16,7 @@ function ChatPage() {
   const queryClient = useQueryClient();
 
   const [selectedModel, setSelectedModel] = useState("auto");
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   const [selectedConversationId, setSelectedConversationId] =
     useState<string | null>(() =>
@@ -65,6 +66,7 @@ function ChatPage() {
       setSelectedConversationId(
         conversation.id,
       );
+      setIsSidebarOpen(false);
 
       setStreamingContent("");
       setStreamStatus(null);
@@ -158,6 +160,7 @@ function ChatPage() {
     setSelectedConversationId(
       conversationId,
     );
+    setIsSidebarOpen(false);
 
     setStreamingContent("");
     setStreamStatus(null);
@@ -175,12 +178,50 @@ function ChatPage() {
       : "Ready";
 
   return (
-    <div className="flex h-screen min-h-0 overflow-hidden bg-slate-50 text-slate-900">
+    <div className="flex h-dvh min-h-0 overflow-hidden bg-slate-50 text-slate-900">
       {/* ================================================================== */}
       {/* SIDEBAR                                                             */}
       {/* ================================================================== */}
 
-      <aside className="flex w-[300px] shrink-0 flex-col border-r border-slate-200 bg-slate-50">
+      {/* Mobile backdrop */}
+      {isSidebarOpen && (
+        <button
+          type="button"
+          aria-label="Close conversation sidebar"
+          onClick={() => setIsSidebarOpen(false)}
+          className="fixed inset-0 z-30 bg-slate-950/30 backdrop-blur-[1px] md:hidden"
+        />
+      )}
+
+      <aside
+        className={`
+          fixed
+          inset-y-0
+          left-0
+          z-40
+          flex
+          min-h-0
+          w-[300px]
+          shrink-0
+          flex-col
+          border-r
+          border-slate-200
+          bg-slate-50
+          shadow-xl
+          transition-transform
+          duration-200
+          ease-out
+          md:static
+          md:z-auto
+          md:translate-x-0
+          md:shadow-none
+          ${
+            isSidebarOpen
+              ? "translate-x-0"
+              : "-translate-x-full"
+          }
+        `}
+      >
         <ConversationSidebar
           selectedConversationId={
             selectedConversationId
@@ -195,7 +236,7 @@ function ChatPage() {
       {/* MAIN WORKSPACE                                                      */}
       {/* ================================================================== */}
 
-      <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-white">
+      <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-white">
         {/* ---------------------------------------------------------------- */}
         {/* Very subtle background atmosphere                                */}
         {/* ---------------------------------------------------------------- */}
@@ -216,7 +257,31 @@ function ChatPage() {
         {/* ---------------------------------------------------------------- */}
 
         <header className="relative z-10 flex h-[64px] shrink-0 items-center border-b border-slate-200/90 bg-white/90 px-5 backdrop-blur-md sm:px-7">
-          <div className="flex min-w-0 flex-1 items-center gap-3">
+          <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
+            {/* Mobile sidebar toggle */}
+          <button
+            type="button"
+            onClick={() => setIsSidebarOpen(true)}
+            aria-label="Open conversation sidebar"
+            aria-expanded={isSidebarOpen}
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-900 focus:outline-none focus:ring-4 focus:ring-blue-500/10 md:hidden"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              className="h-5 w-5"
+              aria-hidden="true"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M4 6h16M4 12h16M4 18h16"
+              />
+            </svg>
+          </button>
+
             {/* OmniChat mark */}
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-slate-950 text-xs font-semibold text-white shadow-sm">
               O
@@ -268,6 +333,8 @@ function ChatPage() {
               disabled={isStreaming}
               aria-label="Select AI model"
               className="
+                hidden
+                sm:block
                 rounded-lg
                 border
                 border-slate-200
