@@ -867,6 +867,7 @@ dependencies = [
     { name = "psycopg", extra = ["binary"] },
     { name = "pypdf" },
     { name = "python-docx" },
+    { name = "redis" },
     { name = "reportlab" },
     { name = "requests" },
 ]
@@ -899,6 +900,7 @@ requires-dist = [
     { name = "psycopg", extras = ["binary"], specifier = ">=3.3.4" },
     { name = "pypdf", specifier = ">=6.16.2" },
     { name = "python-docx", specifier = ">=1.2.0" },
+    { name = "redis", specifier = ">=6.4.0" },
     { name = "reportlab", specifier = ">=5.0.1" },
     { name = "requests", specifier = ">=2.34.2" },
 ]

@@ -1,3 +1,6 @@
+import logging
+
+from django.db import transaction
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema
 from rest_framework import generics, status
@@ -10,6 +13,9 @@ from knowledge.serializers import DocumentSerializer
 from knowledge.tasks import process_document_task
 
 
+logger = logging.getLogger(__name__)
+
+
 class DocumentListCreateView(generics.ListCreateAPIView):
     serializer_class = DocumentSerializer
     permission_classes = [IsAuthenticated]
@@ -20,21 +26,60 @@ class DocumentListCreateView(generics.ListCreateAPIView):
         ).order_by("-created_at")
 
     def perform_create(self, serializer):
-        uploaded_file = self.request.FILES["file"]
+        uploaded_file = self.request.FILES.get("file")
+
+        if uploaded_file is None:
+            raise serializers.ValidationError(
+                {"file": "No file was uploaded."}
+            )
 
         title = serializer.validated_data.get("title", "").strip()
 
         if not title:
             title = uploaded_file.name
 
-        document = serializer.save(
-            user=self.request.user,
-            title=title,
-            original_filename=uploaded_file.name,
-            content_type=uploaded_file.content_type or "",
+        try:
+            document = serializer.save(
+                user=self.request.user,
+                title=title,
+                original_filename=uploaded_file.name,
+                content_type=uploaded_file.content_type or "",
+            )
+
+            logger.info(
+                "Document saved successfully: id=%s filename=%s",
+                document.id,
+                uploaded_file.name,
+            )
+
+        except Exception:
+            logger.exception(
+                "Document upload failed: filename=%s",
+                uploaded_file.name,
+            )
+            raise
+
+        transaction.on_commit(
+            lambda: self._queue_document(document.id)
         )
 
-        process_document_task.delay(document.id)
+    @staticmethod
+    def _queue_document(document_id):
+        try:
+            process_document_task.delay(document_id)
+
+        except Exception:
+            logger.exception(
+                "Failed to queue document processing task "
+                "for document_id=%s",
+                document_id,
+            )
+
+            Document.objects.filter(
+                id=document_id
+            ).update(
+                status=Document.Status.FAILED
+            )
 
 
 class DocumentDetailView(generics.RetrieveDestroyAPIView):
